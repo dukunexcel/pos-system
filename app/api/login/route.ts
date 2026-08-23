@@ -1,15 +1,15 @@
 import { NextResponse } from 'next/server';
 import { createClient } from '@supabase/supabase-js';
 
-const supabase = createClient(process.env.SUPABASE_URL, process.env.SUPABASE_ANON_KEY);
+const supabase = createClient(
+  process.env.SUPABASE_URL || '', 
+  process.env.SUPABASE_ANON_KEY || ''
+);
 
-// Fungsi ini menggantikan fungsi doPost() di GAS
-export async function POST(request) {
+export async function POST(request: Request) {
   try {
-    // Membaca data JSON yang dikirim (pengganti JSON.parse(e.postData.contents))
     const { email, sandi } = await request.json();
 
-    // Cek database Supabase
     const { data, error } = await supabase
       .from('Auth')
       .select('Email, Role, Status_Aktif')
@@ -25,7 +25,6 @@ export async function POST(request) {
       return NextResponse.json({ status: 'gagal', pesan: 'Akun tidak aktif' }, { status: 403 });
     }
 
-    // Mengembalikan response sukses (pengganti ContentService di GAS)
     return NextResponse.json({ status: 'sukses', user: data }, { status: 200 });
     
   } catch (err) {
