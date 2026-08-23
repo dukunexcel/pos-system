@@ -11,14 +11,27 @@ export async function POST(request: Request) {
     const { email, sandi } = await request.json();
 
     const { data, error } = await supabase
-      .from('Auth')
-      .select('Email, Role, Status_Aktif')
+      .from('auth') // Pastikan nama tabel Anda menggunakan A besar di Supabase
+      .select('Email, Role, Status_Aktif') // Pastikan kapitalisasi nama kolom persis seperti di database
       .eq('Email', email)
       .eq('Sandi', sandi)
       .single();
 
-    if (error || !data) {
-      return NextResponse.json({ status: 'gagal', pesan: 'Email atau Sandi salah' }, { status: 401 });
+    // 1. Mencetak pesan error murni dari Supabase jika ada masalah pencocokan/koneksi
+    if (error) {
+      return NextResponse.json({ 
+        status: 'error_database', 
+        pesan: 'Supabase menolak query pencarian', 
+        detail: error 
+      }, { status: 400 });
+    }
+
+    // 2. Mencetak pesan jika tidak ada error tapi data benar-benar tidak ditemukan
+    if (!data) {
+      return NextResponse.json({ 
+        status: 'gagal', 
+        pesan: 'Pencarian selesai, tapi data tidak ada yang cocok' 
+      }, { status: 401 });
     }
 
     if (data.Status_Aktif !== 'Aktif') {
@@ -27,7 +40,11 @@ export async function POST(request: Request) {
 
     return NextResponse.json({ status: 'sukses', user: data }, { status: 200 });
     
-  } catch (err) {
-    return NextResponse.json({ status: 'error', pesan: 'Terjadi kesalahan server' }, { status: 500 });
+  } catch (err: any) {
+    return NextResponse.json({ 
+      status: 'error_sistem', 
+      pesan: 'Terjadi kesalahan pada server Next.js',
+      detail: err.message
+    }, { status: 500 });
   }
 }
