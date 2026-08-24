@@ -12,10 +12,10 @@ export default function Produk({ onClose }: { onClose: () => void }) {
   const [activeLabels, setActiveLabels] = useState<string[]>([]);
   
   const [showModal, setShowModal] = useState(false);
-  const [form, setForm] = useState<any>({ qr: '', nama_barang: '', kategori: '', jumlah_1: 0, modal_1: 0 });
   const [isEdit, setIsEdit] = useState(false);
+  const [showMultiGudang, setShowMultiGudang] = useState(false); // Sakelar hemat ruang
+  const [form, setForm] = useState<any>({});
 
-  // 1. Tarik Data Pengaturan & Produk
   useEffect(() => {
     fetchData();
   }, []);
@@ -23,7 +23,6 @@ export default function Produk({ onClose }: { onClose: () => void }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      // Ambil Pengaturan untuk filter Harga Aktif
       const resSet = await fetch('/api/pengaturan');
       const dataSet = await resSet.json();
       let active: string[] = [];
@@ -35,13 +34,12 @@ export default function Produk({ onClose }: { onClose: () => void }) {
         setActiveLabels(active);
       }
 
-      // Ambil Data Produk
       const resProd = await fetch('/api/produk');
       const dataProd = await resProd.json();
       if (dataProd.status === 'sukses') setProdukList(dataProd.data);
       
     } catch (err) {
-      Toast.fire({ icon: 'error', title: 'Gagal memuat data' });
+      Toast.fire({ icon: 'error', title: 'Gagal memuat data. Pastikan API berjalan.' });
     } finally {
       setLoading(false);
     }
@@ -56,9 +54,16 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     if (produk) {
       setForm(produk);
       setIsEdit(true);
+      // Auto-buka form multi-gudang jika barang ini memang punya data di gudang 2 atau 3
+      if (produk.jumlah_2 > 0 || produk.modal_2 > 0 || produk.jumlah_3 > 0 || produk.modal_3 > 0) {
+        setShowMultiGudang(true);
+      } else {
+        setShowMultiGudang(false);
+      }
     } else {
       setForm({ qr: '', nama_barang: '', kategori: '', jumlah_1: 0, modal_1: 0 });
       setIsEdit(false);
+      setShowMultiGudang(false);
     }
     setShowModal(true);
   };
@@ -77,7 +82,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
         Swal.close();
         Toast.fire({ icon: 'success', title: 'Produk Tersimpan!' });
         setShowModal(false);
-        fetchData(); // Refresh tabel
+        fetchData(); 
       } else {
         Swal.fire('Gagal', data.pesan, 'error');
       }
@@ -88,7 +93,6 @@ export default function Produk({ onClose }: { onClose: () => void }) {
 
   return (
     <div className="h-full flex flex-col bg-bgutama animate-[fadeIn_0.3s_ease-in-out]">
-      {/* HEADER */}
       <div className="bg-white p-4 border-b border-footer2/20 flex justify-between items-center shrink-0">
         <div className="flex items-center gap-3">
           <button onClick={onClose} className="bg-bgutama hover:bg-header2/20 text-header1 p-2 rounded-lg transition border">
@@ -104,7 +108,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
         </button>
       </div>
 
-      {/* TABEL DATA (READ) */}
+      {/* TABEL DATA */}
       <div className="flex-1 p-4 overflow-hidden flex flex-col">
         <div className="bg-white rounded-xl border border-footer2/20 shadow-sm flex-1 overflow-hidden flex flex-col">
           <div className="overflow-x-auto flex-1">
@@ -113,9 +117,8 @@ export default function Produk({ onClose }: { onClose: () => void }) {
                 <tr>
                   <th className="p-3 text-xs font-black text-footer2 border-b">QR / SKU</th>
                   <th className="p-3 text-xs font-black text-footer2 border-b">Nama Barang</th>
-                  <th className="p-3 text-xs font-black text-footer2 border-b">Stok Utama</th>
+                  <th className="p-3 text-xs font-black text-footer2 border-b">Stok (Total)</th>
                   <th className="p-3 text-xs font-black text-footer2 border-b">Modal Utama</th>
-                  {/* Tampilkan header harga dinamis */}
                   {activeLabels.map(tipe => (
                     <th key={tipe} className="p-3 text-xs font-black text-header1 border-b">
                       {pengaturan[`Label_Harga_${tipe}`] || `Harga ${tipe}`}
@@ -126,27 +129,29 @@ export default function Produk({ onClose }: { onClose: () => void }) {
               </thead>
               <tbody>
                 {loading ? (
-                  <tr><td colSpan={10} className="p-8 text-center text-footer2 font-bold animate-pulse">Memuat Katalog...</td></tr>
+                  <tr><td colSpan={15} className="p-8 text-center text-footer2 font-bold animate-pulse">Memuat Katalog...</td></tr>
                 ) : produkList.length === 0 ? (
-                  <tr><td colSpan={10} className="p-8 text-center text-footer2">Belum ada produk terdaftar.</td></tr>
+                  <tr><td colSpan={15} className="p-8 text-center text-footer2">Belum ada produk terdaftar.</td></tr>
                 ) : (
-                  produkList.map((p, idx) => (
-                    <tr key={idx} className="hover:bg-bgutama/50 border-b border-footer2/10 transition">
-                      <td className="p-3 text-xs font-mono">{p.qr}</td>
-                      <td className="p-3 text-sm font-bold">{p.nama_barang}</td>
-                      <td className="p-3 text-sm">{p.jumlah_1}</td>
-                      <td className="p-3 text-sm">Rp {p.modal_1?.toLocaleString('id-ID')}</td>
-                      {/* Tampilkan kolom harga dinamis */}
-                      {activeLabels.map(tipe => (
-                        <td key={tipe} className="p-3 text-sm font-bold text-header1">
-                          Rp {p[`jual_${tipe.toLowerCase()}`]?.toLocaleString('id-ID') || 0}
+                  produkList.map((p, idx) => {
+                    const totalStok = (Number(p.jumlah_1) || 0) + (Number(p.jumlah_2) || 0) + (Number(p.jumlah_3) || 0);
+                    return (
+                      <tr key={idx} className="hover:bg-bgutama/50 border-b border-footer2/10 transition">
+                        <td className="p-3 text-xs font-mono">{p.qr}</td>
+                        <td className="p-3 text-sm font-bold">{p.nama_barang}</td>
+                        <td className="p-3 text-sm font-bold text-header1">{totalStok}</td>
+                        <td className="p-3 text-sm">Rp {p.modal_1?.toLocaleString('id-ID')}</td>
+                        {activeLabels.map(tipe => (
+                          <td key={tipe} className="p-3 text-sm font-bold text-header1">
+                            Rp {p[`jual_${tipe.toLowerCase()}`]?.toLocaleString('id-ID') || 0}
+                          </td>
+                        ))}
+                        <td className="p-3 text-center">
+                          <button onClick={() => openModal(p)} className="bg-header2/10 text-header1 px-3 py-1 rounded text-xs font-bold hover:bg-header2 hover:text-white transition">Edit</button>
                         </td>
-                      ))}
-                      <td className="p-3 text-center">
-                        <button onClick={() => openModal(p)} className="bg-header2/10 text-header1 px-3 py-1 rounded text-xs font-bold hover:bg-header2 hover:text-white transition">Edit</button>
-                      </td>
-                    </tr>
-                  ))
+                      </tr>
+                    );
+                  })
                 )}
               </tbody>
             </table>
@@ -154,7 +159,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
         </div>
       </div>
 
-      {/* MODAL FORM (CREATE & UPDATE) */}
+      {/* MODAL FORM INPUT */}
       {showModal && (
         <div className="absolute inset-0 bg-teksgelap/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
           <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
@@ -165,17 +170,41 @@ export default function Produk({ onClose }: { onClose: () => void }) {
             
             <form onSubmit={handleSimpan} className="p-6 overflow-y-auto flex-1 space-y-4">
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label className="text-xs font-bold text-footer2 mb-1 block">QR / SKU (Unik)</label><input type="text" name="qr" required disabled={isEdit} value={form.qr || ''} onChange={handleInputChange} className="w-full p-2 border rounded bg-bgutama focus:ring-1 outline-none" /></div>
+                <div><label className="text-xs font-bold text-footer2 mb-1 block">QR / SKU (Unik)</label><input type="text" name="qr" required disabled={isEdit} value={form.qr || ''} onChange={handleInputChange} className="w-full p-2 border rounded bg-bgutama focus:ring-1 outline-none font-mono" /></div>
                 <div><label className="text-xs font-bold text-footer2 mb-1 block">Kategori</label><input type="text" name="kategori" value={form.kategori || ''} onChange={handleInputChange} className="w-full p-2 border rounded bg-bgutama focus:ring-1 outline-none" /></div>
                 <div className="md:col-span-2"><label className="text-xs font-bold text-footer2 mb-1 block">Nama Barang</label><input type="text" name="nama_barang" required value={form.nama_barang || ''} onChange={handleInputChange} className="w-full p-3 border rounded-lg bg-bgutama focus:ring-2 font-bold outline-none" /></div>
               </div>
 
-              <div className="grid grid-cols-2 gap-4 p-4 bg-bgutama/50 rounded-lg border border-footer2/20">
-                <div><label className="text-xs font-bold text-footer2 mb-1 block">Stok Gudang 1</label><input type="number" name="jumlah_1" value={form.jumlah_1 || ''} onChange={handleInputChange} className="w-full p-2 border rounded outline-none" /></div>
-                <div><label className="text-xs font-bold text-footer2 mb-1 block">Harga Modal (Rp)</label><input type="number" name="modal_1" value={form.modal_1 || ''} onChange={handleInputChange} className="w-full p-2 border rounded font-bold text-aksen outline-none" /></div>
+              {/* SECTION GUDANG */}
+              <div className="bg-bgutama/50 p-4 rounded-lg border border-footer2/20">
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="text-xs font-black text-header1">Stok & Modal (Gudang 1 / Utama)</h4>
+                  <button type="button" onClick={() => setShowMultiGudang(!showMultiGudang)} className="text-[10px] bg-header2/10 text-header1 font-bold px-2 py-1 rounded border border-header2/20 hover:bg-header2 hover:text-white transition">
+                    {showMultiGudang ? '- Tutup Multi-Gudang' : '+ Buka Multi-Gudang'}
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-2 gap-4">
+                  <div><label className="text-xs font-bold text-footer2 mb-1 block">Stok Gudang 1</label><input type="number" name="jumlah_1" value={form.jumlah_1 || ''} onChange={handleInputChange} className="w-full p-2 border rounded outline-none" /></div>
+                  <div><label className="text-xs font-bold text-footer2 mb-1 block">Harga Modal 1 (Rp)</label><input type="number" name="modal_1" value={form.modal_1 || ''} onChange={handleInputChange} className="w-full p-2 border rounded font-bold text-aksen outline-none" /></div>
+                </div>
+
+                {/* GUDANG 2 & 3 (HANYA MUNCUL JIKA TOGGLE AKTIF) */}
+                {showMultiGudang && (
+                  <div className="mt-4 pt-4 border-t border-footer2/20 space-y-4 animate-[fadeIn_0.2s_ease-in-out]">
+                    <div className="grid grid-cols-2 gap-4">
+                      <div><label className="text-[10px] font-bold text-footer2 mb-1 block">Stok Gudang 2 (Display/Cadangan)</label><input type="number" name="jumlah_2" value={form.jumlah_2 || ''} onChange={handleInputChange} className="w-full p-2 border rounded text-xs outline-none bg-white" /></div>
+                      <div><label className="text-[10px] font-bold text-footer2 mb-1 block">Harga Modal 2 (Rp)</label><input type="number" name="modal_2" value={form.modal_2 || ''} onChange={handleInputChange} className="w-full p-2 border rounded text-xs font-bold text-aksen outline-none bg-white" /></div>
+                    </div>
+                    <div className="grid grid-cols-2 gap-4">
+                      <div><label className="text-[10px] font-bold text-footer2 mb-1 block">Stok Gudang 3 (Lainnya)</label><input type="number" name="jumlah_3" value={form.jumlah_3 || ''} onChange={handleInputChange} className="w-full p-2 border rounded text-xs outline-none bg-white" /></div>
+                      <div><label className="text-[10px] font-bold text-footer2 mb-1 block">Harga Modal 3 (Rp)</label><input type="number" name="modal_3" value={form.modal_3 || ''} onChange={handleInputChange} className="w-full p-2 border rounded text-xs font-bold text-aksen outline-none bg-white" /></div>
+                    </div>
+                  </div>
+                )}
               </div>
 
-              {/* RENDER INPUT HARGA JUAL HANYA JIKA AKTIF */}
+              {/* HARGA JUAL AKTIF */}
               {activeLabels.length > 0 && (
                 <div>
                   <h4 className="text-xs font-black text-header1 mb-3 mt-4 border-b pb-1">Seting Harga Jual Dasar (Hardcode)</h4>
@@ -186,7 +215,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
                       return (
                         <div key={tipe}>
                           <label className="text-[10px] font-bold text-footer2 uppercase block mb-1">{namaLabel}</label>
-                          <input type="number" name={keyDB} value={form[keyDB] || ''} onChange={handleInputChange} placeholder="0" required={true} className="w-full p-2 border border-footer2/30 rounded text-sm font-bold text-header1 focus:ring-1 outline-none" />
+                          <input type="number" name={keyDB} required value={form[keyDB] || ''} onChange={handleInputChange} placeholder="0" className="w-full p-2 border border-footer2/30 rounded text-sm font-bold text-header1 focus:ring-1 outline-none" />
                         </div>
                       );
                     })}
