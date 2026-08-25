@@ -5,7 +5,7 @@ import Swal from 'sweetalert2';
 const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
 
 export default function Restok({ onClose }: { onClose: () => void }) {
-  const [dataMaster, setDataMaster] = useState({ produk: [], supplier: [], karyawan: [], dompet: [], riwayat: [] });
+  const [dataMaster, setDataMaster] = useState<any>({ produk: [], supplier: [], karyawan: [], dompet: [], riwayat: [] });
   const [loading, setLoading] = useState(true);
   
   // State Sesi Petugas
