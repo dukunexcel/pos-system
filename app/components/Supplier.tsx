@@ -1,6 +1,5 @@
 "use client";
-
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import Swal from 'sweetalert2';
 
 const Toast = Swal.mixin({
@@ -12,111 +11,95 @@ const Toast = Swal.mixin({
   color: 'var(--color-teksgelap)'
 });
 
-interface PelangganData {
-  id_pelanggan: string;
-  nama: string;
-  tipe: string;
-  wa: string;
+interface SupplierData {
+  id_supplier: string;
+  nama_supplier: string;
+  kontak_wa: string;
   alamat: string;
-  saldo: number;
-  piutang: number;
-  foto?: string;
+  status_aktif: string;
 }
 
-export default function Pelanggan({ onClose }: { onClose: () => void }) {
-  const [loading, setLoading] = useState(true);
-  const [pelangganList, setPelangganList] = useState<PelangganData[]>([]);
-  const [filteredList, setFilteredList] = useState<PelangganData[]>([]);
-  const [unikTipe, setUnikTipe] = useState<string[]>([]);
-  const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
-  const [visibleCount, setVisibleCount] = useState(30);
-  const [totalCount, setTotalCount] = useState(0);
-  const [isLoadingMore, setIsLoadingMore] = useState(false);
-  
+export default function Supplier({ onClose }: { onClose: () => void }) {
+  const [dataList, setDataList] = useState<SupplierData[]>([]);
+  const [filteredList, setFilteredList] = useState<SupplierData[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
-  const [selectedPelanggan, setSelectedPelanggan] = useState<PelangganData | null>(null);
-  const [isEdit, setIsEdit] = useState(false);
-  const [form, setForm] = useState<PelangganData>({
-    id_pelanggan: '',
-    nama: '',
-    tipe: 'Umum',
-    wa: '',
+  const [selectedSupplier, setSelectedSupplier] = useState<SupplierData | null>(null);
+  const [form, setForm] = useState<SupplierData>({
+    id_supplier: '',
+    nama_supplier: '',
+    kontak_wa: '',
     alamat: '',
-    saldo: 0,
-    piutang: 0,
-    foto: ''
+    status_aktif: 'true'
   });
+  const [isEdit, setIsEdit] = useState(false);
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
+  const [searchQuery, setSearchQuery] = useState('');
+  const [visibleCount, setVisibleCount] = useState(30);
+  const [isLoading, setIsLoading] = useState(true);
+  const [totalCount, setTotalCount] = useState(0);
+  const [isLoadingMore, setIsLoadingMore] = useState(false);
 
-  useEffect(() => {
-    fetchData();
+  useEffect(() => { 
+    fetchData(); 
   }, []);
 
   const fetchData = async () => {
-    setLoading(true);
+    setIsLoading(true);
     try {
-      const res = await fetch('/api/pelanggan');
-      const data = await res.json();
-      if (data.status === 'sukses') {
-        setPelangganList(data.data);
-        setFilteredList(data.data);
-        setTotalCount(data.data.length);
-        
-        // Ekstrak tipe unik untuk autocomplete (datalist)
-        const types = Array.from(new Set(data.data.map((p: PelangganData) => p.tipe).filter(Boolean)));
-        setUnikTipe(types as string[]);
+      const res = await fetch('/api/supplier');
+      const d = await res.json();
+      if (d.status === 'sukses') {
+        setDataList(d.data);
+        setFilteredList(d.data);
+        setTotalCount(d.data.length);
       }
-    } catch (err) {
-      Toast.fire({ icon: 'error', title: 'Gagal memuat data pelanggan' });
-    } finally {
-      setLoading(false);
+    } catch (error) {
+      console.error('Error fetching data:', error);
+      Swal.fire('Error', 'Gagal memuat data supplier', 'error');
     }
+    setIsLoading(false);
   };
 
   // Filter data berdasarkan pencarian
   useEffect(() => {
     if (searchQuery.trim() === '') {
-      setFilteredList(pelangganList);
-      setTotalCount(pelangganList.length);
+      setFilteredList(dataList);
+      setTotalCount(dataList.length);
     } else {
       const query = searchQuery.toLowerCase();
-      const filtered = pelangganList.filter((item: PelangganData) => 
-        item.nama?.toLowerCase().includes(query) ||
-        item.id_pelanggan?.toLowerCase().includes(query) ||
-        item.wa?.toLowerCase().includes(query) ||
-        item.alamat?.toLowerCase().includes(query) ||
-        item.tipe?.toLowerCase().includes(query)
+      const filtered = dataList.filter((item: SupplierData) => 
+        item.nama_supplier?.toLowerCase().includes(query) ||
+        item.id_supplier?.toLowerCase().includes(query) ||
+        item.kontak_wa?.toLowerCase().includes(query) ||
+        item.alamat?.toLowerCase().includes(query)
       );
       setFilteredList(filtered);
       setTotalCount(filtered.length);
     }
     setVisibleCount(30);
-  }, [searchQuery, pelangganList]);
+  }, [searchQuery, dataList]);
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    const val = e.target.type === 'number' ? Number(e.target.value) : e.target.value;
-    setForm({ ...form, [e.target.name]: val });
+    setForm({ ...form, [e.target.name]: e.target.value });
   };
 
-  const openModal = (pelanggan?: PelangganData) => {
-    if (pelanggan) {
-      setForm(pelanggan);
-      setIsEdit(true);
-    } else {
-      // Buat ID unik sementara berdasarkan timestamp untuk pendaftaran baru
-      const newId = `PLG-${Date.now().toString().slice(-6)}`;
+  const openModal = (item?: SupplierData) => {
+    if (item) { 
+      setForm({
+        ...item,
+        status_aktif: item.status_aktif === 'true' ? 'true' : 'false'
+      }); 
+      setIsEdit(true); 
+    } else { 
       setForm({ 
-        id_pelanggan: newId, 
-        nama: '', 
-        tipe: 'Umum', 
-        wa: '', 
-        alamat: '', 
-        saldo: 0, 
-        piutang: 0,
-        foto: ''
-      });
-      setIsEdit(false);
+        id_supplier: `SPL-${Date.now().toString().slice(-5)}`, 
+        status_aktif: 'true',
+        nama_supplier: '',
+        kontak_wa: '',
+        alamat: ''
+      }); 
+      setIsEdit(false); 
     }
     setShowModal(true);
   };
@@ -124,51 +107,39 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
   const closeModal = () => {
     setShowModal(false);
     setForm({
-      id_pelanggan: '',
-      nama: '',
-      tipe: 'Umum',
-      wa: '',
+      id_supplier: '',
+      nama_supplier: '',
+      kontak_wa: '',
       alamat: '',
-      saldo: 0,
-      piutang: 0,
-      foto: ''
+      status_aktif: 'true'
     });
   };
 
-  const openDetailModal = (pelanggan: PelangganData) => {
-    setSelectedPelanggan(pelanggan);
+  const openDetailModal = (item: SupplierData) => {
+    setSelectedSupplier(item);
     setShowDetailModal(true);
   };
 
   const closeDetailModal = () => {
     setShowDetailModal(false);
-    setSelectedPelanggan(null);
+    setSelectedSupplier(null);
   };
 
   const generateAutoId = () => {
     const rand = Math.floor(1000 + Math.random() * 9000);
-    setForm({ ...form, id_pelanggan: `PLG${rand}` });
-  };
-
-  const handleFotoChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const file = e.target.files?.[0];
-    if (file) {
-      const reader = new FileReader();
-      reader.onloadend = () => setForm({ ...form, foto: reader.result as string });
-      reader.readAsDataURL(file);
-    }
+    setForm({ ...form, id_supplier: `SPL${rand}` });
   };
 
   const handleSimpan = async (e: React.FormEvent) => {
     e.preventDefault();
     
-    if (!form.id_pelanggan) {
+    if (!form.id_supplier) {
       Toast.fire({ icon: 'warning', title: 'ID tidak boleh kosong!' });
       return;
     }
 
     if (!isEdit) {
-      const isExist = pelangganList.some(item => item.id_pelanggan === form.id_pelanggan);
+      const isExist = dataList.some(item => item.id_supplier === form.id_supplier);
       if (isExist) {
         Toast.fire({ icon: 'error', title: 'ID sudah terpakai!' });
         return;
@@ -182,30 +153,30 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
     });
     
     try {
-      const res = await fetch('/api/pelanggan', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+      const res = await fetch('/api/supplier', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify(form) 
       });
       const data = await res.json();
       
       Swal.close();
       if (data.status === 'sukses') {
-        Toast.fire({ icon: 'success', title: 'Data Pelanggan Tersimpan!' });
-        closeModal();
-        fetchData(); 
+        Toast.fire({ icon: 'success', title: 'Data Supplier Tersimpan!' }); 
+        closeModal(); 
+        fetchData();
       } else {
         Swal.fire('Gagal', data.pesan || 'Gagal menyimpan data', 'error');
       }
     } catch (err) {
       Swal.close();
-      Swal.fire('Error', 'Koneksi terputus', 'error');
+      Swal.fire('Error', 'Gagal menyimpan data', 'error');
     }
   };
 
   const handleHapus = async (id: string, nama: string) => {
     Swal.fire({
-      title: 'Hapus Pelanggan?',
+      title: 'Hapus Supplier?',
       text: `Hapus "${nama}" (${id})?`,
       icon: 'warning',
       showCancelButton: true,
@@ -216,10 +187,10 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
     }).then(async (result) => {
       if (result.isConfirmed) {
         try {
-          const res = await fetch(`/api/pelanggan?id=${id}`, { method: 'DELETE' });
+          const res = await fetch(`/api/supplier?id=${id}`, { method: 'DELETE' });
           const data = await res.json();
           if (data.status === 'sukses') {
-            Toast.fire({ icon: 'success', title: 'Pelanggan Terhapus!' });
+            Toast.fire({ icon: 'success', title: 'Supplier Terhapus!' });
             closeDetailModal();
             fetchData();
           } else {
@@ -253,20 +224,10 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
   const displayedList = filteredList.slice(0, visibleCount);
   const hasMoreData = visibleCount < filteredList.length;
 
-  const getInitials = (nama: string) => {
-    return nama.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase();
-  };
-
-  const getTipeBadgeColor = (tipe: string) => {
-    const tipeLower = tipe.toLowerCase();
-    if (tipeLower.includes('ecer') || tipeLower === 'a') {
-      return 'bg-footer2/20 text-teksgelap';
-    } else if (tipeLower.includes('grosir') || tipeLower === 'b') {
-      return 'bg-header2/20 text-header1';
-    } else if (tipeLower.includes('khusus') || tipeLower === 'c') {
-      return 'bg-aksen/20 text-aksen';
-    }
-    return 'bg-bgutama text-teksgelap';
+  const getStatusBadge = (status: string) => {
+    return status === 'true' 
+      ? 'bg-header2/20 text-header1' 
+      : 'bg-aksen/20 text-aksen';
   };
 
   return (
@@ -283,10 +244,7 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
             </svg>
           </button>
-          <div>
-            <h2 className="text-lg md:text-2xl font-bold text-header1">Buku Pelanggan</h2>
-            <p className="text-[10px] md:text-xs text-footer2">Manajemen Klien & Mitra</p>
-          </div>
+          <h2 className="text-lg md:text-2xl font-bold text-header1">Data Supplier</h2>
         </div>
         <button 
           onClick={() => openModal()} 
@@ -295,15 +253,39 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
           <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
           </svg>
-          <span className="hidden md:inline">Tambah Pelanggan</span>
+          <span className="hidden md:inline">Tambah Supplier</span>
           <span className="inline md:hidden">Tambah</span>
         </button>
       </header>
 
       {/* Action Bar */}
       <div className="px-4 md:px-8 py-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
+        
+        {/* Kiri: Aksi Excel */}
+        <div className="flex gap-2 shrink-0">
+          <button 
+            className="bg-white border border-footer2/40 text-teksgelap p-2 md:px-3 md:py-2 rounded-lg text-sm font-semibold shadow-sm hover:border-header2 hover:text-header2 transition flex items-center justify-center"
+            title="Download Template"
+          >
+            <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4-4m0 0l-4-4m4 4V4"></path>
+            </svg>
+            <span className="hidden md:inline ml-2">Download</span>
+          </button>
+          <label 
+            className="bg-white border border-footer2/40 text-teksgelap p-2 md:px-3 md:py-2 rounded-lg text-sm font-semibold shadow-sm hover:border-header2 hover:text-header2 transition flex items-center justify-center cursor-pointer"
+            title="Upload Excel"
+          >
+            <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+            </svg>
+            <span className="hidden md:inline ml-2">Upload</span>
+            <input type="file" className="hidden" accept=".xlsx, .xls" />
+          </label>
+        </div>
+
         {/* Kanan: View Mode & Pencarian */}
-        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center w-full lg:w-auto justify-end ml-auto">
+        <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center w-full lg:w-auto justify-end">
           {/* Toggle View Grid/Table */}
           <div className="flex bg-bgutama rounded-lg p-1 border border-footer2/20 shrink-0">
             <button 
@@ -330,7 +312,7 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
           <div className="relative w-full sm:w-64 lg:w-72">
             <input 
               type="text" 
-              placeholder="Cari pelanggan..."
+              placeholder="Cari supplier..."
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
               className="w-full pl-3 pr-8 py-2.5 rounded-lg border border-footer2/40 bg-white text-sm focus:outline-none focus:border-header1"
@@ -351,7 +333,7 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
 
       {/* Konten Utama */}
       <main className="flex-1 overflow-y-auto px-4 md:px-8 pb-8">
-        {loading ? (
+        {isLoading ? (
           <div className="flex justify-center items-center py-20">
             <div className="animate-spin rounded-full h-10 w-10 border-4 border-header2 border-t-transparent"></div>
           </div>
@@ -360,7 +342,7 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4">
             {displayedList.length === 0 ? (
               <p className="text-footer2 italic text-sm col-span-full text-center py-8">
-                {searchQuery ? `Tidak ada pelanggan yang cocok dengan "${searchQuery}"` : 'Belum ada pelanggan terdaftar.'}
+                {searchQuery ? `Tidak ada supplier yang cocok dengan "${searchQuery}"` : 'Belum ada data supplier.'}
               </p>
             ) : (
               displayedList.map((p, i) => (
@@ -369,37 +351,24 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
                   className="bg-white border border-footer2/20 rounded-lg p-3 flex flex-col items-center shadow-sm hover:shadow-md transition relative group cursor-pointer"
                   onClick={() => openDetailModal(p)}
                 >
-                  <div className={`absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${getTipeBadgeColor(p.tipe)}`}>
-                    {p.tipe}
+                  <div className={`absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${getStatusBadge(p.status_aktif)}`}>
+                    {p.status_aktif === 'true' ? 'Aktif' : 'Nonaktif'}
                   </div>
                   
                   <div className="mb-2 mt-1">
-                    {p.foto ? (
-                      <img src={p.foto} className="w-12 h-12 rounded-full object-cover border-2 border-footer2/20" alt={p.nama} />
-                    ) : (
-                      <div className="w-12 h-12 rounded-full bg-bgutama border-2 border-footer2/20 flex items-center justify-center">
-                        <span className="text-sm font-bold text-header1">{getInitials(p.nama)}</span>
-                      </div>
-                    )}
+                    <div className="w-12 h-12 rounded-full bg-bgutama border-2 border-footer2/20 flex items-center justify-center">
+                      <svg className="w-6 h-6 text-footer1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                      </svg>
+                    </div>
                   </div>
                   
                   <h4 className="font-bold text-teksgelap line-clamp-1 text-sm w-full text-center truncate">
-                    {p.nama}
+                    {p.nama_supplier}
                   </h4>
-                  <p className="text-[10px] text-footer2 font-semibold font-mono mt-0.5">{p.id_pelanggan}</p>
+                  <p className="text-[10px] text-footer2 font-semibold font-mono mt-0.5">{p.id_supplier}</p>
                   
-                  <div className="w-full mt-2 pt-2 border-t border-footer2/10 space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] text-footer2">Saldo:</span>
-                      <span className="text-[10px] font-bold text-header2">Rp {p.saldo?.toLocaleString('id-ID')}</span>
-                    </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] text-footer2">Piutang:</span>
-                      <span className="text-[10px] font-bold text-aksen">Rp {p.piutang?.toLocaleString('id-ID')}</span>
-                    </div>
-                  </div>
-                  
-                  <div className="flex gap-1.5 w-full mt-2 pt-2 border-t border-footer2/10" onClick={(e) => e.stopPropagation()}>
+                  <div className="flex gap-1.5 w-full mt-3 pt-2.5 border-t border-footer2/10" onClick={(e) => e.stopPropagation()}>
                     <button 
                       onClick={() => openModal(p)} 
                       className="flex-1 bg-header2/10 hover:bg-header2 text-header1 hover:text-white text-[10px] font-bold py-1.5 rounded transition"
@@ -407,7 +376,7 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
                       Edit
                     </button>
                     <button 
-                      onClick={() => handleHapus(p.id_pelanggan, p.nama)} 
+                      onClick={() => handleHapus(p.id_supplier, p.nama_supplier)} 
                       className="flex-1 bg-aksen/10 hover:bg-aksen text-aksen hover:text-white text-[10px] font-bold py-1.5 rounded transition"
                     >
                       Hapus
@@ -425,10 +394,10 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
                 <thead className="bg-bgutama border-b border-footer2/20 sticky top-0 z-10">
                   <tr className="text-left">
                     <th className="px-4 py-3 font-bold text-footer2 text-xs uppercase">ID</th>
-                    <th className="px-4 py-3 font-bold text-footer2 text-xs uppercase">Nama & Kontak</th>
-                    <th className="px-4 py-3 font-bold text-footer2 text-xs uppercase">Kategori</th>
-                    <th className="px-4 py-3 font-bold text-footer2 text-xs uppercase text-right">Saldo</th>
-                    <th className="px-4 py-3 font-bold text-footer2 text-xs uppercase text-right">Piutang</th>
+                    <th className="px-4 py-3 font-bold text-footer2 text-xs uppercase">Nama Supplier</th>
+                    <th className="px-4 py-3 font-bold text-footer2 text-xs uppercase">No. WA</th>
+                    <th className="px-4 py-3 font-bold text-footer2 text-xs uppercase">Alamat</th>
+                    <th className="px-4 py-3 font-bold text-footer2 text-xs uppercase">Status</th>
                     <th className="px-4 py-3 font-bold text-footer2 text-xs uppercase text-center">Aksi</th>
                   </tr>
                 </thead>
@@ -436,7 +405,7 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
                   {displayedList.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="text-center py-8 text-footer2 italic">
-                        {searchQuery ? `Tidak ada pelanggan yang cocok dengan "${searchQuery}"` : 'Belum ada pelanggan terdaftar.'}
+                        {searchQuery ? `Tidak ada supplier yang cocok dengan "${searchQuery}"` : 'Belum ada data supplier.'}
                       </td>
                     </tr>
                   ) : (
@@ -446,28 +415,16 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
                         className={`border-b border-footer2/10 ${i % 2 === 0 ? 'bg-white' : 'bg-bgutama/50'} hover:bg-header2/5 transition cursor-pointer`}
                         onClick={() => openDetailModal(p)}
                       >
-                        <td className="px-4 py-3 font-mono text-xs font-semibold">{p.id_pelanggan}</td>
-                        <td className="px-4 py-3">
-                          <div className="flex items-center gap-2">
-                            {p.foto && (
-                              <img src={p.foto} className="w-8 h-8 rounded-full object-cover" alt={p.nama} />
-                            )}
-                            <div>
-                              <div className="font-bold text-teksgelap">{p.nama}</div>
-                              <div className="text-xs text-footer2">{p.wa || '-'}</div>
-                            </div>
-                          </div>
+                        <td className="px-4 py-3 font-mono text-xs font-semibold">{p.id_supplier}</td>
+                        <td className="px-4 py-3 font-bold text-teksgelap">{p.nama_supplier}</td>
+                        <td className="px-4 py-3 text-footer2">{p.kontak_wa || '-'}</td>
+                        <td className="px-4 py-3 text-footer2 text-xs max-w-[200px] truncate" title={p.alamat}>
+                          {p.alamat || '-'}
                         </td>
                         <td className="px-4 py-3">
-                          <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${getTipeBadgeColor(p.tipe)}`}>
-                            {p.tipe}
+                          <span className={`px-2 py-1 rounded text-[10px] font-bold uppercase ${getStatusBadge(p.status_aktif)}`}>
+                            {p.status_aktif === 'true' ? 'Aktif' : 'Nonaktif'}
                           </span>
-                        </td>
-                        <td className="px-4 py-3 text-sm font-bold text-right text-header2">
-                          Rp {p.saldo?.toLocaleString('id-ID')}
-                        </td>
-                        <td className="px-4 py-3 text-sm font-bold text-right text-aksen">
-                          Rp {p.piutang?.toLocaleString('id-ID')}
                         </td>
                         <td className="px-4 py-3" onClick={(e) => e.stopPropagation()}>
                           <div className="flex gap-2 justify-center">
@@ -478,7 +435,7 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
                               Edit
                             </button>
                             <button 
-                              onClick={() => handleHapus(p.id_pelanggan, p.nama)} 
+                              onClick={() => handleHapus(p.id_supplier, p.nama_supplier)} 
                               className="bg-aksen/10 hover:bg-aksen text-aksen hover:text-white text-xs font-bold px-3 py-1.5 rounded transition"
                             >
                               Hapus
@@ -495,7 +452,7 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
             {/* Lazy Load Controls */}
             <div className="flex flex-col sm:flex-row justify-between items-center px-4 py-3 border-t border-footer2/20 bg-bgutama gap-3">
               <div className="text-xs text-footer2">
-                Menampilkan <span>{displayedList.length}</span> dari <span>{totalCount}</span> pelanggan
+                Menampilkan <span>{displayedList.length}</span> dari <span>{totalCount}</span> supplier
               </div>
               <div className="flex flex-wrap items-center gap-2">
                 <select 
@@ -521,10 +478,10 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
         )}
       </main>
 
-      {/* Modal Form Pelanggan */}
+      {/* Modal Form Supplier */}
       {showModal && (
         <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center">
-          <div className="bg-white w-full md:w-[90%] md:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-3xl md:rounded-2xl shadow-2xl p-6 relative animate-[slideUp_0.3s_ease-out] md:animate-[scaleIn_0.2s_ease-out]">
+          <div className="bg-white w-full md:w-[90%] md:max-w-md max-h-[90vh] overflow-y-auto rounded-t-3xl md:rounded-2xl shadow-2xl p-6 relative animate-[slideUp_0.3s_ease-out] md:animate-[scaleIn_0.2s_ease-out]">
             <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mb-4 md:hidden"></div>
             
             <button 
@@ -537,21 +494,22 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
             </button>
             
             <h3 className="text-xl font-bold text-header1 mb-4">
-              {isEdit ? 'Edit Pelanggan' : 'Tambah Pelanggan'}
+              {isEdit ? 'Edit Supplier' : 'Tambah Supplier'}
             </h3>
             
             <form onSubmit={handleSimpan} className="flex flex-col gap-3">
               <div className="flex items-end gap-2">
                 <div className="flex-1">
-                  <label className="text-xs font-bold text-footer2">ID Pelanggan</label>
+                  <label className="text-xs font-bold text-footer2">ID Supplier</label>
                   <input 
                     type="text" 
-                    name="id_pelanggan" 
-                    required 
+                    name="id_supplier" 
                     disabled={isEdit}
-                    value={form.id_pelanggan || ''} 
+                    required 
+                    placeholder="Cth: SPL-001"
+                    value={form.id_supplier || ''} 
                     onChange={handleInputChange}
-                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1 font-mono font-semibold uppercase"
+                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1 font-semibold uppercase"
                   />
                 </div>
                 {!isEdit && (
@@ -564,105 +522,56 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
                   </button>
                 )}
               </div>
-
+              
               <div>
-                <label className="text-xs font-bold text-footer2">Nama Lengkap / Instansi</label>
+                <label className="text-xs font-bold text-footer2">Nama Perusahaan / Supplier</label>
                 <input 
                   type="text" 
-                  name="nama" 
+                  name="nama_supplier" 
                   required 
-                  placeholder="Nama Pelanggan"
-                  value={form.nama || ''} 
+                  placeholder="Nama Supplier / Pabrik"
+                  value={form.nama_supplier || ''} 
                   onChange={handleInputChange}
-                  className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1 font-bold"
+                  className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
                 />
               </div>
-
+              
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <label className="text-xs font-bold text-footer2">Kategori / Tipe</label>
-                  <input 
-                    list="tipe-list" 
-                    name="tipe" 
-                    required 
-                    value={form.tipe || ''} 
-                    onChange={handleInputChange}
-                    placeholder="Cth: Umum"
-                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-white text-sm focus:outline-none focus:border-header1 font-bold text-header1"
-                  />
-                  <datalist id="tipe-list">
-                    {unikTipe.map(t => <option key={t} value={t} />)}
-                  </datalist>
-                </div>
-                <div>
-                  <label className="text-xs font-bold text-footer2">Nomor WhatsApp</label>
+                  <label className="text-xs font-bold text-footer2">No WhatsApp</label>
                   <input 
                     type="text" 
-                    name="wa" 
-                    placeholder="08..."
-                    value={form.wa || ''} 
+                    name="kontak_wa" 
+                    placeholder="Nomor WhatsApp"
+                    value={form.kontak_wa || ''} 
                     onChange={handleInputChange}
-                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-white text-sm focus:outline-none focus:border-header1"
+                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
                   />
                 </div>
+                <div>
+                  <label className="text-xs font-bold text-footer2">Status</label>
+                  <select 
+                    name="status_aktif" 
+                    value={form.status_aktif === 'true' ? 'true' : 'false'} 
+                    onChange={handleInputChange}
+                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                  >
+                    <option value="true">Aktif</option>
+                    <option value="false">Nonaktif</option>
+                  </select>
+                </div>
               </div>
-
+              
               <div>
-                <label className="text-xs font-bold text-footer2">Alamat / Instansi</label>
+                <label className="text-xs font-bold text-footer2">Alamat</label>
                 <textarea 
                   name="alamat" 
                   rows={2}
                   placeholder="Alamat Lengkap"
                   value={form.alamat || ''} 
                   onChange={handleInputChange}
-                  className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-white text-sm focus:outline-none focus:border-header1 resize-none"
+                  className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1 resize-none"
                 ></textarea>
-              </div>
-
-              {/* SECTION KEUANGAN AWAL */}
-              <div className="bg-bgutama/50 p-4 rounded-lg border border-footer2/20">
-                <p className="text-[10px] text-footer2 mb-3">Atur saldo & piutang awal (selanjutnya terupdate otomatis dari transaksi kasir).</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-bold text-header2 mb-1 block">Saldo Deposit (Rp)</label>
-                    <input 
-                      type="number" 
-                      name="saldo" 
-                      value={form.saldo || 0} 
-                      onChange={handleInputChange}
-                      className="w-full p-2.5 rounded-lg border border-footer2/50 bg-white text-sm focus:outline-none focus:border-header2 font-bold text-header2"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-bold text-aksen mb-1 block">Piutang Awal (Rp)</label>
-                    <input 
-                      type="number" 
-                      name="piutang" 
-                      value={form.piutang || 0} 
-                      onChange={handleInputChange}
-                      className="w-full p-2.5 rounded-lg border border-footer2/50 bg-white text-sm focus:outline-none focus:border-aksen font-bold text-aksen"
-                    />
-                  </div>
-                </div>
-              </div>
-
-              <div>
-                <label className="text-xs font-bold text-footer2 mb-1 block">Foto Pelanggan (Opsional)</label>
-                <div className="flex items-center gap-4">
-                  {form.foto && (
-                    <img 
-                      src={form.foto} 
-                      alt="Preview" 
-                      className="w-12 h-12 rounded-full object-cover border border-footer2/30" 
-                    />
-                  )}
-                  <input 
-                    type="file" 
-                    accept="image/*" 
-                    onChange={handleFotoChange}
-                    className="text-xs w-full"
-                  />
-                </div>
               </div>
 
               <div className="mt-4 flex gap-3 pb-4 md:pb-0">
@@ -678,8 +587,8 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
         </div>
       )}
 
-      {/* Modal Detail Pelanggan */}
-      {showDetailModal && selectedPelanggan && (
+      {/* Modal Detail Supplier */}
+      {showDetailModal && selectedSupplier && (
         <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center">
           <div className="bg-white w-full md:w-[90%] md:max-w-md max-h-[90vh] overflow-y-auto rounded-t-3xl md:rounded-2xl shadow-2xl p-6 relative animate-[slideUp_0.3s_ease-out] md:animate-[scaleIn_0.2s_ease-out]">
             <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mb-4 md:hidden"></div>
@@ -693,52 +602,32 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
               </svg>
             </button>
             
-            <h3 className="text-xl font-bold text-header1 mb-4">Detail Pelanggan</h3>
+            <h3 className="text-xl font-bold text-header1 mb-4">Detail Supplier</h3>
             
             <div className="space-y-4">
               <div className="flex items-center gap-4">
-                {selectedPelanggan.foto ? (
-                  <img 
-                    src={selectedPelanggan.foto} 
-                    className="w-16 h-16 rounded-full object-cover border-2 border-footer2/20" 
-                    alt={selectedPelanggan.nama} 
-                  />
-                ) : (
-                  <div className="w-16 h-16 rounded-full bg-bgutama border-2 border-footer2/20 flex items-center justify-center">
-                    <span className="text-xl font-bold text-header1">{getInitials(selectedPelanggan.nama)}</span>
-                  </div>
-                )}
+                <div className="w-16 h-16 rounded-full bg-bgutama border-2 border-footer2/20 flex items-center justify-center">
+                  <svg className="w-8 h-8 text-footer1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 21V5a2 2 0 00-2-2H7a2 2 0 00-2 2v16m14 0h2m-2 0h-5m-9 0H3m2 0h5M9 7h1m-1 4h1m4-4h1m-1 4h1m-5 10v-5a1 1 0 011-1h2a1 1 0 011 1v5m-4 0h4"></path>
+                  </svg>
+                </div>
                 <div className="flex-1">
-                  <h4 className="font-bold text-lg text-teksgelap">{selectedPelanggan.nama}</h4>
-                  <p className="text-sm text-footer2 font-mono">{selectedPelanggan.id_pelanggan}</p>
-                  <span className={`inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${getTipeBadgeColor(selectedPelanggan.tipe)}`}>
-                    {selectedPelanggan.tipe}
+                  <h4 className="font-bold text-lg text-teksgelap">{selectedSupplier.nama_supplier}</h4>
+                  <p className="text-sm text-footer2 font-mono">{selectedSupplier.id_supplier}</p>
+                  <span className={`inline-block mt-1 px-2 py-0.5 rounded text-[10px] font-bold uppercase ${getStatusBadge(selectedSupplier.status_aktif)}`}>
+                    {selectedSupplier.status_aktif === 'true' ? 'Aktif' : 'Nonaktif'}
                   </span>
                 </div>
               </div>
               
               <div className="border-t border-footer2/20 pt-4 space-y-3">
                 <div>
-                  <label className="text-xs font-bold text-footer2 block">No. HP / WA</label>
-                  <p className="text-sm mt-1">{selectedPelanggan.wa || '-'}</p>
+                  <label className="text-xs font-bold text-footer2 block">No. WhatsApp</label>
+                  <p className="text-sm mt-1">{selectedSupplier.kontak_wa || '-'}</p>
                 </div>
                 <div>
                   <label className="text-xs font-bold text-footer2 block">Alamat</label>
-                  <p className="text-sm mt-1">{selectedPelanggan.alamat || '-'}</p>
-                </div>
-              </div>
-              
-              <div className="border-t border-footer2/20 pt-4">
-                <h5 className="font-bold text-header1 mb-3">Ringkasan Keuangan</h5>
-                <div className="grid grid-cols-2 gap-3">
-                  <div className="bg-bgutama p-3 rounded-lg">
-                    <label className="text-xs text-footer2 block">Saldo</label>
-                    <p className="font-bold text-header1 mt-1">Rp {selectedPelanggan.saldo?.toLocaleString('id-ID')}</p>
-                  </div>
-                  <div className="bg-bgutama p-3 rounded-lg">
-                    <label className="text-xs text-footer2 block">Piutang</label>
-                    <p className="font-bold text-amber-600 mt-1">Rp {selectedPelanggan.piutang?.toLocaleString('id-ID')}</p>
-                  </div>
+                  <p className="text-sm mt-1">{selectedSupplier.alamat || '-'}</p>
                 </div>
               </div>
               
@@ -746,14 +635,14 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
                 <button 
                   onClick={() => {
                     closeDetailModal();
-                    openModal(selectedPelanggan);
+                    openModal(selectedSupplier);
                   }}
                   className="flex-1 bg-header2/10 hover:bg-header2 text-header1 hover:text-white text-sm font-bold py-2 rounded-lg transition"
                 >
                   Edit
                 </button>
                 <button 
-                  onClick={() => handleHapus(selectedPelanggan.id_pelanggan, selectedPelanggan.nama)}
+                  onClick={() => handleHapus(selectedSupplier.id_supplier, selectedSupplier.nama_supplier)}
                   className="flex-1 bg-aksen/10 hover:bg-aksen text-aksen hover:text-white text-sm font-bold py-2 rounded-lg transition"
                 >
                   Hapus

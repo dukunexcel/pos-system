@@ -16,7 +16,13 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
   const [loading, setLoading] = useState(true);
   const [formData, setFormData] = useState<Record<string, string>>({});
   const [temaLibrary, setTemaLibrary] = useState<any[]>([]);
-  const [tipeMember, setTipeMember] = useState<string[]>([]); // Menyimpan daftar unik tipe pelanggan
+  const [tipeMember, setTipeMember] = useState<string[]>([]);
+
+  // State Khusus Modul Dompet
+  const [dompetList, setDompetList] = useState<any[]>([]);
+  const [showDompetModal, setShowDompetModal] = useState(false);
+  const [dompetForm, setDompetForm] = useState<any>({});
+  const [isDompetEdit, setIsDompetEdit] = useState(false);
 
   const listHarga = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
 
@@ -31,7 +37,11 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
         const dataTema = await resTema.json();
         if (dataTema.status === 'sukses') setTemaLibrary(dataTema.data || []);
 
-        // Menarik tipe unik dari tabel pelanggan (menggunakan Supabase REST langsung sementara belum ada route API)
+        const resDompet = await fetch('/api/dompet');
+        const dataDompet = await resDompet.json();
+        if (dataDompet.status === 'sukses') setDompetList(dataDompet.data || []);
+
+        // Menarik tipe unik dari tabel pelanggan
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
         const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
         
@@ -41,7 +51,7 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
           });
           const dataPlg = await resPlg.json();
           if (Array.isArray(dataPlg)) {
-            const uniqueTypes = Array.from(new Set(dataPlg.map(p => p.tipe).filter(Boolean)));
+            const uniqueTypes = Array.from(new Set(dataPlg.map((p: any) => p.tipe).filter(Boolean)));
             setTipeMember(uniqueTypes as string[]);
           }
         }
@@ -62,7 +72,6 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
     setFormData({ ...formData, [e.target.name]: e.target.checked ? 'true' : 'false' });
   };
 
-  // Fungsi khusus untuk centang "Pakai Info Toko" di Struk
   const handleAutoHeaderStruk = (e: React.ChangeEvent<HTMLInputElement>) => {
     const checked = e.target.checked;
     setFormData(prev => ({
@@ -110,6 +119,36 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
     }
   };
 
+  // --- LOGIKA DOMPET ---
+  const handleInputDompet = (e: any) => {
+    const val = e.target.type === 'number' ? Number(e.target.value) : e.target.value;
+    setDompetForm({ ...dompetForm, [e.target.name]: val });
+  };
+  const handleCheckDompet = (e: any) => setDompetForm({ ...dompetForm, [e.target.name]: e.target.checked ? 'true' : 'false' });
+
+  const openDompetModal = (item?: any) => {
+    if (item) { setDompetForm(item); setIsDompetEdit(true); }
+    else { setDompetForm({ id_dompet: `KAS-${Date.now().toString().slice(-4)}`, kategori: 'Tunai', saldo_aktif: 0, status_aktif: 'true' }); setIsDompetEdit(false); }
+    setShowDompetModal(true);
+  };
+
+  const fetchDompet = async () => {
+    try {
+      const res = await fetch('/api/dompet');
+      const d = await res.json();
+      if (d.status === 'sukses') setDompetList(d.data);
+    } catch (err) {}
+  };
+
+  const handleSimpanDompet = async (e: any) => {
+    e.preventDefault(); 
+    Swal.fire({ title: 'Menyimpan...', didOpen: () => Swal.showLoading() });
+    await fetch('/api/dompet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dompetForm) });
+    Swal.close(); Toast.fire({ icon: 'success', title: 'Dompet Tersimpan!' }); 
+    setShowDompetModal(false); 
+    fetchDompet();
+  };
+
   return (
     <div className="h-full flex flex-col md:flex-row animate-[fadeIn_0.3s_ease-in-out]">
       {/* SIDEBAR */}
@@ -127,6 +166,7 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
           <button onClick={() => setActiveTab('toko')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'toko' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>🏠 Identitas & Harga</button>
           <button onClick={() => setActiveTab('tema')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'tema' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>🎨 Tema & Warna</button>
           <button onClick={() => setActiveTab('struk')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'struk' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>🧾 Desain Struk</button>
+          <button onClick={() => setActiveTab('dompet')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'dompet' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>💳 Rekening & Kas</button>
         </nav>
       </aside>
 
@@ -154,7 +194,6 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
               
               {listHarga.map((tipe) => {
                 const aktif = formData[`Label_Aktif_${tipe}`] === 'true';
-                // PERBAIKAN: Menggunakan pengecekan undefined agar teks kosong '' tidak kembali ke 'Semua'
                 const rawHari = formData[`Hari_Khusus_${tipe}`];
                 const hari = rawHari !== undefined ? rawHari : 'Semua';
                 const isSemuaHari = hari === 'Semua';
@@ -197,7 +236,6 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
                         <option value="Modal-10%">-10% (Diskon)</option>
                       </select>
 
-                      {/* Dropdown Kategori Member dinamis dari tabel Pelanggan */}
                       <select name={`Member_Khusus_${tipe}`} value={formData[`Member_Khusus_${tipe}`] || ''} onChange={handleChange} className="flex-1 p-2 border border-footer2/30 rounded text-xs font-bold bg-white focus:outline-none" disabled={!aktif}>
                         <option value="">Semua Member</option>
                         {tipeMember.map(t => (
@@ -298,10 +336,94 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        <div className="sticky bottom-0 bg-white/90 backdrop-blur border-t border-footer2/30 p-4 -mx-4 -mb-4 mt-6 flex justify-end">
-          <button onClick={handleSimpan} className="bg-header1 hover:bg-header2 text-white font-black px-8 py-3 rounded-xl shadow-lg transition">SIMPAN PERUBAHAN</button>
-        </div>
+        {/* TAB 4: REKENING & KAS (BARU) */}
+        {activeTab === 'dompet' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center border-b border-footer2/20 pb-2">
+              <h3 className="text-lg font-black text-header1">Rekening & Laci Kas</h3>
+              <button onClick={() => openDompetModal()} className="bg-header1 hover:bg-header2 text-white px-4 py-2 rounded-lg font-bold text-xs shadow transition">
+                + Tambah Rekening/Kas
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {dompetList.map((p, i) => (
+                <div key={i} className="bg-white p-5 rounded-xl shadow-sm border border-footer2/30 flex flex-col justify-between hover:shadow-md transition">
+                  <div>
+                    <div className="flex justify-between items-start mb-2">
+                      <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider ${p.kategori === 'Tunai' ? 'bg-header2/20 text-header1' : (p.kategori === 'Bank' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700')}`}>
+                        {p.kategori}
+                      </span>
+                      <span className="text-xs font-mono text-footer2">{p.id_dompet}</span>
+                    </div>
+                    <h3 className="font-bold text-lg">{p.nama_dompet}</h3>
+                    <p className="text-xs text-footer2 mb-4">{p.status_aktif === 'true' ? '🟢 Aktif Digunakan' : '🔴 Nonaktif'}</p>
+                  </div>
+                  <div className="border-t border-footer2/10 pt-3 flex justify-between items-end">
+                    <div>
+                      <div className="text-[10px] font-bold text-footer2">Saldo Terkini</div>
+                      <div className="font-black text-header1">Rp {p.saldo_aktif?.toLocaleString('id-ID')}</div>
+                    </div>
+                    <button onClick={() => openDompetModal(p)} className="bg-bgutama hover:bg-header2/20 text-header1 px-3 py-1.5 rounded text-xs font-bold transition border border-header2/20">Edit</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* FOOTER TOMBOL SIMPAN (Hanya muncul jika bukan tab Dompet, karena dompet otomatis menyimpan datanya sendiri) */}
+        {activeTab !== 'dompet' && (
+          <div className="sticky bottom-0 bg-white/90 backdrop-blur border-t border-footer2/30 p-4 -mx-4 -mb-4 mt-6 flex justify-end">
+            <button onClick={handleSimpan} className="bg-header1 hover:bg-header2 text-white font-black px-8 py-3 rounded-xl shadow-lg transition">SIMPAN PERUBAHAN</button>
+          </div>
+        )}
       </main>
+
+      {/* MODAL FORM DOMPET */}
+      {showDompetModal && (
+        <div className="absolute inset-0 bg-teksgelap/50 backdrop-blur-sm flex justify-center items-center p-4 z-50">
+          <form onSubmit={handleSimpanDompet} className="bg-white p-6 rounded-2xl w-full max-w-md flex flex-col gap-4 shadow-2xl animate-[scaleIn_0.2s_ease-out]">
+            <div className="flex justify-between items-center border-b border-footer2/20 pb-3">
+              <h3 className="font-bold text-lg text-header1">{isDompetEdit ? 'Edit Dompet' : 'Dompet Baru'}</h3>
+              <button type="button" onClick={() => setShowDompetModal(false)} className="text-footer2 hover:text-aksen font-bold text-xl">×</button>
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-bold block mb-1">ID (Otomatis)</label>
+                <input type="text" name="id_dompet" disabled={isDompetEdit} value={dompetForm.id_dompet || ''} onChange={handleInputDompet} className="p-2.5 border rounded text-xs bg-bgutama font-mono w-full outline-none focus:border-header1" />
+              </div>
+              <div>
+                <label className="text-xs font-bold block mb-1">Kategori</label>
+                <select name="kategori" value={dompetForm.kategori || 'Tunai'} onChange={handleInputDompet} className="p-2.5 border rounded text-sm font-bold w-full bg-white outline-none focus:border-header1">
+                  <option>Tunai</option><option>Bank</option><option>E-Wallet</option>
+                </select>
+              </div>
+            </div>
+            
+            <div>
+              <label className="text-xs font-bold block mb-1">Nama Dompet (Cth: Laci Kasir 1)</label>
+              <input type="text" name="nama_dompet" required value={dompetForm.nama_dompet || ''} onChange={handleInputDompet} className="p-3 border rounded font-bold w-full outline-none focus:border-header1 bg-bgutama" />
+            </div>
+            
+            <div>
+              <label className="text-xs font-bold block mb-1">Saldo Awal / Terkini (Rp)</label>
+              <input type="number" name="saldo_aktif" required value={dompetForm.saldo_aktif || 0} onChange={handleInputDompet} className="p-3 border rounded font-black text-header1 w-full outline-none focus:border-header1 bg-header2/10" />
+            </div>
+            
+            <div className="flex items-center gap-2 mt-1 p-3 bg-bgutama rounded-lg border border-footer2/20">
+              <input type="checkbox" name="status_aktif" checked={dompetForm.status_aktif === 'true'} onChange={handleCheckDompet} className="w-4 h-4 accent-header1 cursor-pointer" />
+              <span className="text-sm font-bold cursor-pointer" onClick={() => setDompetForm({...dompetForm, status_aktif: dompetForm.status_aktif === 'true' ? 'false' : 'true'})}>Dompet Aktif (Muncul di Transaksi)</span>
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-footer2/10">
+              <button type="button" onClick={() => setShowDompetModal(false)} className="px-4 py-2 hover:bg-footer2/10 text-footer2 rounded-lg font-bold transition">Batal</button>
+              <button type="submit" className="px-6 py-2 bg-header1 hover:bg-header2 text-white rounded-lg font-bold shadow-md transition">Simpan</button>
+            </div>
+          </form>
+        </div>
+      )}
     </div>
   );
 }

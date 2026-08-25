@@ -3,7 +3,12 @@
 import { useState, useEffect } from 'react';
 import Swal from 'sweetalert2';
 import Pengaturan from './components/Pengaturan';
-import Produk from './components/Produk'; // Memanggil modul Produk yang sudah Anda buat
+import Produk from './components/Produk'; 
+import Pelanggan from './components/Pelanggan';
+import Karyawan from './components/Karyawan';
+import Supplier from './components/Supplier';
+import Restok from './components/Restok';
+import Kasir from './components/Kasir';
 
 export default function POSSystem() {
   const [isAuth, setIsAuth] = useState(false);
@@ -190,19 +195,32 @@ export default function POSSystem() {
 
       {/* RENDER MODUL AKTIF */}
       {activeModule === 'pengaturan' && (
-        <div className="absolute inset-0 z-50 w-full h-full">
-          <Pengaturan onClose={() => setActiveModule('')} />
-        </div>
+        <div className="absolute inset-0 z-50 w-full h-full"><Pengaturan onClose={() => setActiveModule('')} /></div>
       )}
 
       {activeModule === 'produk' && (
-        <div className="absolute inset-0 z-50 w-full h-full">
-          <Produk onClose={() => setActiveModule('')} />
-        </div>
+        <div className="absolute inset-0 z-50 w-full h-full"><Produk onClose={() => setActiveModule('')} /></div>
+      )}
+
+      {activeModule === 'pelanggan' && (
+        <div className="absolute inset-0 z-50 w-full h-full"><Pelanggan onClose={() => setActiveModule('')} /></div>
+      )}
+
+      {activeModule === 'karyawan' && (
+        <div className="absolute inset-0 z-50 w-full h-full"><Karyawan onClose={() => setActiveModule('')} /></div>
+      )}
+      {activeModule === 'supplier' && (
+        <div className="absolute inset-0 z-50 w-full h-full"><Supplier onClose={() => setActiveModule('')} /></div>
+      )}
+      {activeModule === 'restok' && (
+        <div className="absolute inset-0 z-50 w-full h-full"><Restok onClose={() => setActiveModule('')} /></div>
+      )}
+      {activeModule === 'kasir' && (
+        <div className="absolute inset-0 z-50 w-full h-full"><Kasir onClose={() => setActiveModule('')} /></div>
       )}
 
       {/* Fallback untuk menu yang belum dibangun komponennya */}
-      {activeModule !== '' && activeModule !== 'pengaturan' && activeModule !== 'produk' && (
+      {activeModule !== '' && activeModule !== 'pengaturan' && activeModule !== 'produk' && activeModule !== 'pelanggan' && activeModule !== 'karyawan' && activeModule !== 'supplier' && activeModule !== 'restok' && activeModule !== 'kasir' && (
         <div className="absolute inset-0 z-50 w-full h-full bg-bgutama flex flex-col items-center justify-center">
           <div className="bg-white p-8 rounded-2xl shadow-xl flex flex-col items-center">
             <svg className="w-16 h-16 text-footer2 mb-4 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>

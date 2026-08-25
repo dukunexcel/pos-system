@@ -38,7 +38,7 @@ export async function POST(request: Request) {
         piutang: payload.piutang || 0,
         // Poin dan Nominal biasanya di-update otomatis oleh transaksi, tapi kita sediakan jika ingin diedit manual
         poin_pembelian: payload.poin_pembelian || 0,
-        nominal_pembelian: payload.nominal_pembelian || 0,
+        nominal_pembelian: payload.nominal_pembelian || 0, foto: payload.foto || '',
       }, { onConflict: 'id_pelanggan' });
 
     if (error) throw error;
