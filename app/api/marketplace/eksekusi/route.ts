@@ -19,8 +19,8 @@ export async function POST(request: Request) {
       groupedOrders[item.idPesanan].push(item);
     });
 
-    const transaksiHeaders = [];
-    const transaksiDetails = [];
+    const transaksiHeaders: any[] = [];
+    const transaksiDetails: any[] = [];
     const tanggalStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
 
     // 2. Siapkan Payload Header & Detail
