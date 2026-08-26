@@ -173,6 +173,36 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isModalInisialisasi, isModalScanner, isModeGrid, keranjangPos, currentKasir, currentPelanggan]);
 
+  const lewatiInisialisasi = () => {
+    // Set kasir default kosong
+    setCurrentKasir({ 
+        id_karyawan: '', 
+        nama_karyawan: 'Belum Dipilih' 
+    });
+    
+    // Set pelanggan default UMUM
+    setCurrentPelanggan({ 
+        id_pelanggan: 'UMUM', 
+        nama: 'Pelanggan Umum', 
+        tipe: 'A' 
+    });
+    
+    // Set tipe harga default A
+    setTipeHargaAktif('A');
+    
+    // Tutup modal inisialisasi
+    setIsModalInisialisasi(false);
+    
+    // Focus ke input barcode
+    setTimeout(() => refBarcode.current?.focus(), 100);
+    
+    // Tampilkan notifikasi
+    ToastNotif.fire({ 
+        icon: 'info', 
+        title: 'Mode Tanpa Kasir - Data Kasir Kosong' 
+    });
+  };
+
   const muatDataInisialisasi = async () => {
     try {
       const safeFetch = async (url: string) => {
@@ -276,22 +306,26 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
 
   const logoutKasir = () => {
     Swal.fire({
-      title: 'Akhiri Shift?',
-      text: 'Keranjang akan dibersihkan',
-      icon: 'warning',
-      showCancelButton: true,
-      confirmButtonColor: '#E53E3E',
-      confirmButtonText: 'Ya, Akhiri',
-      cancelButtonText: 'Batal'
+        title: 'Akhiri Shift?',
+        text: 'Keranjang akan dibersihkan',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonColor: '#E53E3E',
+        confirmButtonText: 'Ya, Akhiri',
+        cancelButtonText: 'Batal'
     }).then((result) => {
-      if (result.isConfirmed) {
+        if (result.isConfirmed) {
         setKeranjangPos([]);
         setDataTunda(null);
         setInputKasirWajib('');
         setInputPelangganWajib('');
+        // ✅ Reset kasir dan pelanggan
+        setCurrentKasir({ id_karyawan: '', nama_karyawan: '' });
+        setCurrentPelanggan({ id_pelanggan: 'UMUM', nama: 'Pelanggan Umum', tipe: 'A' });
+        setTipeHargaAktif('A');
         setIsModalInisialisasi(true);
         setTimeout(() => refInputKasir.current?.focus(), 100);
-      }
+        }
     });
   };
 
@@ -794,28 +828,47 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
   const eksekusiTransaksiServer = async (bayarTunai: number, metodeBayar: string, idDompet: string) => {
     const isRefund = totalBelanjaPos < 0;
     const absoluteTotal = Math.abs(totalBelanjaPos);
-    
+
     if (!isRefund && metodeBayar !== 'Piutang' && bayarTunai < absoluteTotal) {
-      Swal.fire({ icon: 'error', title: 'Uang Tidak Cukup!' });
-      return;
+        Swal.fire({ icon: 'error', title: 'Uang Tidak Cukup!' });
+        return;
     }
     if (metodeBayar !== 'Piutang' && !idDompet) {
-      Swal.fire({ icon: 'error', title: 'Dompet Belum Dipilih!' });
-      return;
+        Swal.fire({ icon: 'error', title: 'Dompet Belum Dipilih!' });
+        return;
+    }
+
+    // ✅ Validasi kasir jika kosong
+    if (!currentKasir.id_karyawan) {
+        const result = await Swal.fire({
+        icon: 'warning',
+        title: 'Kasir Belum Dipilih!',
+        text: 'Transaksi akan disimpan tanpa data kasir. Lanjutkan?',
+        showCancelButton: true,
+        confirmButtonText: 'Lanjutkan',
+        cancelButtonText: 'Batal',
+        confirmButtonColor: '#5A7718'
+        });
+        
+        if (!result.isConfirmed) {
+        setIsModalInisialisasi(true);
+        setTimeout(() => refInputKasir.current?.focus(), 100);
+        return;
+        }
     }
 
     const dataTrx = { 
-      idKasir: currentKasir.id_karyawan, 
-      namaKasir: currentKasir.nama_karyawan, 
-      idPelanggan: currentPelanggan.id_pelanggan, 
-      namaPelanggan: currentPelanggan.nama, 
-      tipeHarga: tipeHargaAktif, 
-      totalBelanja: totalBelanjaPos, 
-      bayarTunai: isRefund ? totalBelanjaPos : (bayarTunai > absoluteTotal ? absoluteTotal : bayarTunai), 
-      bayarSaldo: 0,
-      metodeBayar, 
-      idDompet, 
-      metodePenjualan: 'Offline' 
+        idKasir: currentKasir.id_karyawan || 'TANPA_KASIR', // ✅ Gunakan nilai default
+        namaKasir: currentKasir.nama_karyawan || 'Tanpa Kasir', // ✅ Gunakan nilai default
+        idPelanggan: currentPelanggan.id_pelanggan, 
+        namaPelanggan: currentPelanggan.nama, 
+        tipeHarga: tipeHargaAktif, 
+        totalBelanja: totalBelanjaPos, 
+        bayarTunai: isRefund ? totalBelanjaPos : (bayarTunai > absoluteTotal ? absoluteTotal : bayarTunai), 
+        bayarSaldo: 0,
+        metodeBayar, 
+        idDompet, 
+        metodePenjualan: 'Offline' 
     };
 
     Swal.fire({
@@ -834,6 +887,17 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
       
       if (data.status === 'sukses') {
         const kembalian = (!isRefund && bayarTunai > absoluteTotal) ? bayarTunai - absoluteTotal : 0;
+        const dataStruk = {
+            namaKasir: currentKasir.nama_karyawan,
+            namaPelanggan: currentPelanggan.nama,
+            metodeBayar: metodeBayar,
+            status: metodeBayar === 'Piutang' ? 'Hutang' : 'Lunas',
+            dibayar: bayarTunai,
+            diskon: 0, // Ambil dari state jika ada
+            biaya_lain: 0, // Ambil dari state jika ada
+            kembalian: kembalian,
+            isRefund: isRefund
+        };
         
         Swal.fire({ 
           icon: 'success', 
@@ -845,14 +909,30 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
               <p class="text-xs text-footer2 font-mono mt-2">ID Trx: ${data.id_transaksi || '-'}</p>
             </div>
           `,
-          confirmButtonText: 'Selesai (F10)',
-          confirmButtonColor: '#5A7718'
-        }).then(() => {
-          setKeranjangPos([]);
-          setDataTunda(null);
-          muatDataInisialisasi();
-          logoutKasir();
-        });
+          confirmButtonText: 'Cetak Struk',
+          confirmButtonColor: '#5A7718',
+          showCancelButton: true,
+          cancelButtonText: 'Selesai (F10)',
+          cancelButtonColor: '#A0AEC0'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            cetakStrukKasir(
+            data.id_transaksi || `TRX-${Date.now()}`, 
+            dataStruk, 
+            keranjangPos.map(item => ({
+               nama_barang: item.nama,
+               qty: item.qty,
+               harga_jual: item.harga,
+               isRetur: item.isRetur,
+               returTarget: item.returTarget
+               }))
+             );
+           }
+           setKeranjangPos([]);
+           setDataTunda(null);
+           muatDataInisialisasi();
+           logoutKasir();
+         });
       } else {
         throw new Error(data.pesan || 'Gagal menyimpan transaksi');
       }
@@ -882,6 +962,154 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
       return newSet;
     });
   };
+
+  // --- FUNGSI CETAK STRUK KASIR ---
+    const cetakStrukKasir = (idTrx: string, dataTrx: any, cartData: any[]) => {
+    const lebarKertas = (pengaturan?.Struk_Kertas === '80mm') ? '350px' : '280px';
+    const fontSizeStruk = pengaturan?.Struk_FontSize || '12px';
+    
+    const printWindow = window.open('', '_blank', 'width=400,height=600');
+    if (!printWindow) return;
+
+    let htmlContent = `
+    <html><head><title>Bukti Transaksi ${idTrx}</title>
+    <style>
+        @page { margin: 0; }
+        body { font-family: 'Courier New', Courier, monospace; width: 100%; max-width: ${lebarKertas}; margin: 0 auto; padding: 10px; color: #000; font-size: ${fontSizeStruk}; }
+        .center { text-align: center; } .right { text-align: right; } .bold { font-weight: bold; }
+        table { width: 100%; border-collapse: collapse; }
+        td { vertical-align: top; padding: 2px 0; }
+        .border-dashed { border-bottom: 1px dashed #000; margin: 8px 0; }
+    </style>
+    </head><body>
+    `;
+
+    // 1. HEADER (H1 sampai H5)
+    for (let i = 1; i <= 5; i++) {
+        let barisHeader = pengaturan[`Struk_H${i}`];
+        if (barisHeader && barisHeader.trim() !== '') {
+        let styleCustom = (i === 1) ? 'font-size: 14px; font-weight: bold; margin-bottom: 3px;' : 'margin-bottom: 2px;';
+        htmlContent += `<div class="center" style="${styleCustom}">${barisHeader}</div>`;
+        }
+    }
+    
+    const judulStruk = dataTrx.isRefund ? 'BUKTI RETUR / PENGEMBALIAN' : 'BUKTI TRANSAKSI / STRUK';
+    htmlContent += `<div class="center bold" style="margin-top: 5px; font-size: 13px;">${judulStruk}</div>`;
+    htmlContent += '<div class="border-dashed"></div>';
+    
+    // 2. METADATA
+    let adaInfo = false;
+    let htmlInfo = '<table>';
+    
+    const getLabel = (val: any, defaultLabel: string) => {
+        if (val === undefined || val === null) return defaultLabel;
+        return val; 
+    };
+    
+    if (pengaturan.Struk_ShowID === 'true' || pengaturan.Struk_ShowID === true) {
+        let lblID = getLabel(pengaturan.Struk_Label_ID, 'No. TRX:');
+        htmlInfo += `<tr><td style="width: 35%;">${lblID}</td><td>: ${idTrx}</td></tr>`;
+        adaInfo = true;
+    }
+    
+    if (pengaturan.Struk_ShowWaktu === 'true' || pengaturan.Struk_ShowWaktu === true) {
+        let lblWaktu = getLabel(pengaturan.Struk_Label_Waktu, 'Waktu:');
+        htmlInfo += `<tr><td>${lblWaktu}</td><td>: ${new Date().toLocaleString('id-ID')}</td></tr>`;
+        adaInfo = true;
+    }
+    
+    if (pengaturan.Struk_ShowKasir === 'true' || pengaturan.Struk_ShowKasir === true) {
+        let lblKasir = getLabel(pengaturan.Struk_Label_Kasir, 'Kasir:');
+        htmlInfo += `<tr><td>${lblKasir}</td><td>: ${dataTrx.namaKasir?.substring(0, 15) || '-'}</td></tr>`;
+        adaInfo = true;
+    }
+    
+    if (pengaturan.Struk_ShowPlg === 'true' || pengaturan.Struk_ShowPlg === true) {
+        let lblPlg = getLabel(pengaturan.Struk_Label_Plg, 'Pelanggan:');
+        htmlInfo += `<tr><td>${lblPlg}</td><td>: ${dataTrx.namaPelanggan?.substring(0, 15) || '-'}</td></tr>`;
+        adaInfo = true;
+    }
+    
+    htmlInfo += '</table>';
+    if (adaInfo) htmlContent += htmlInfo + '<div class="border-dashed"></div>';
+
+    // 3. ITEM BARANG
+    htmlContent += '<table>';
+    cartData.forEach(item => {
+        const isRetur = item.qty < 0;
+        const qtyAbs = Math.abs(item.qty);
+        const subtotal = item.qty * item.harga_jual;
+        
+        htmlContent += `
+        <tr>
+            <td colspan="2" class="bold">
+            ${isRetur ? '[RETUR] ' : ''}${item.nama_barang}
+            ${isRetur && item.returTarget ? ` (SB-${item.returTarget})` : ''}
+            </td>
+        </tr>
+        <tr>
+            <td>${isRetur ? '-' : ''}${qtyAbs} x ${item.harga_jual.toLocaleString('id-ID')}</td>
+            <td class="right">${subtotal.toLocaleString('id-ID')}</td>
+        </tr>
+        `;
+    });
+    htmlContent += '</table>';
+    htmlContent += '<div class="border-dashed"></div>';
+    
+    // 4. SUMMARY TAGIHAN
+    const subtotalBruto = cartData.reduce((sum, item) => sum + (item.qty * item.harga_jual), 0);
+    const grandTotal = subtotalBruto - (dataTrx.diskon || 0) + (dataTrx.biaya_lain || 0);
+    const nominalDibayar = dataTrx.status === 'Lunas' ? grandTotal : (dataTrx.dibayar || 0);
+    const sisaHutang = grandTotal - nominalDibayar;
+    
+    htmlContent += `
+    <table>
+        <tr><td>Subtotal</td><td class="right">${subtotalBruto.toLocaleString('id-ID')}</td></tr>
+        ${(dataTrx.diskon || 0) > 0 ? `<tr><td>Diskon</td><td class="right">-${dataTrx.diskon.toLocaleString('id-ID')}</td></tr>` : ''}
+        ${(dataTrx.biaya_lain || 0) > 0 ? `<tr><td>Biaya Lain</td><td class="right">+${dataTrx.biaya_lain.toLocaleString('id-ID')}</td></tr>` : ''}
+        <tr><td class="bold">${dataTrx.isRefund ? 'TOTAL RETUR' : 'GRAND TOTAL'}</td><td class="right bold">${grandTotal.toLocaleString('id-ID')}</td></tr>
+        <tr><td>Metode</td><td class="right">${dataTrx.metodeBayar || '-'}</td></tr>
+        <tr><td>Status</td><td class="right">${dataTrx.status || 'Lunas'}</td></tr>
+        <tr><td>Dibayar</td><td class="right">${nominalDibayar.toLocaleString('id-ID')}</td></tr>
+        ${!dataTrx.isRefund && dataTrx.kembalian > 0 ? `<tr><td>Kembalian</td><td class="right">${dataTrx.kembalian.toLocaleString('id-ID')}</td></tr>` : ''}
+        ${sisaHutang > 0 ? `<tr><td class="bold">SISA HUTANG</td><td class="right bold">${sisaHutang.toLocaleString('id-ID')}</td></tr>` : ''}
+    </table>
+    <div class="border-dashed"></div>
+    `;
+
+    // 5. FOOTER (F1, F2, F3)
+    for (let i = 1; i <= 3; i++) {
+        let barisFooter = pengaturan[`Struk_F${i}`];
+        if (barisFooter && barisFooter.trim() !== '') {
+        htmlContent += `<div class="center" style="margin-bottom: 2px;">${barisFooter}</div>`;
+        }
+    }
+
+    // 6. QR CODE PROMOSI / INFO
+    let qr1Label = pengaturan.Struk_QR1_Label; let qr1Data = pengaturan.Struk_QR1_Data;
+    let qr2Label = pengaturan.Struk_QR2_Label; let qr2Data = pengaturan.Struk_QR2_Data;
+
+    if ((qr1Data && qr1Data.trim() !== '') || (qr2Data && qr2Data.trim() !== '')) {
+        htmlContent += '<div class="border-dashed"></div><div style="display: flex; justify-content: space-around; text-align: center; gap: 10px; margin-top: 5px;">';
+        
+        const fallbackQR = `this.outerHTML='<div style=\\'width:75px; height:75px; margin:0 auto; border:1px dashed #000; display:flex; align-items:center; justify-content:center; font-size:9px; font-style:italic;\\'>pratinjau tidak tersedia</div>'`;
+
+        if (qr1Data && qr1Data.trim() !== '') {
+        let apiQr1 = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qr1Data)}`;
+        htmlContent += `<div style="flex: 1;"><img src="${apiQr1}" width="75" height="75" onerror="${fallbackQR}"><div style="font-size: 9px; margin-top: 2px;">${qr1Label || ''}</div></div>`;
+        }
+        if (qr2Data && qr2Data.trim() !== '') {
+        let apiQr2 = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qr2Data)}`;
+        htmlContent += `<div style="flex: 1;"><img src="${apiQr2}" width="75" height="75" onerror="${fallbackQR}"><div style="font-size: 9px; margin-top: 2px;">${qr2Label || ''}</div></div>`;
+        }
+        htmlContent += '</div>';
+    }
+
+    htmlContent += '</body></html>';
+    
+    printWindow.document.write(htmlContent); printWindow.document.close(); printWindow.focus();
+    setTimeout(() => { printWindow.print(); }, 600);
+    };
 
   // ============ RENDER ============
   return (
@@ -971,7 +1199,7 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
               <div className="flex gap-3 mt-2">
                 <button 
                   type="button"
-                  onClick={onClose}
+                  onClick={lewatiInisialisasi}
                   className="w-1/3 bg-white hover:bg-gray-100 text-footer2 font-bold py-4 rounded-xl border-2 border-footer2/30 transition text-sm"
                 >
                   Lewati
@@ -1026,12 +1254,14 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
           <button 
             onClick={() => setIsModalInisialisasi(true)} 
             className="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded text-xs md:text-sm font-mono flex gap-2 items-center flex-1 truncate transition cursor-pointer text-left"
-          >
-            <span className="truncate">KSR: <b>{currentKasir.nama_karyawan || '---'}</b></span>
+            >
+            <span className="truncate">
+                KSR: <b>{currentKasir.nama_karyawan || 'Belum Dipilih'}</b>
+            </span>
             <span className="text-white/50">|</span>
             <span className="truncate">PLG: <b>{currentPelanggan.nama}</b></span>
             <span className="bg-white text-header1 px-1.5 py-0.5 rounded text-[10px] md:text-xs font-bold shrink-0 shadow-sm">
-              {getNamaTipe(tipeHargaAktif)}
+                {getNamaTipe(tipeHargaAktif)}
             </span>
           </button>
           
@@ -1214,49 +1444,124 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
 
-                {!isReturStaging ? (
-                  <div className="mt-2 bg-gradient-to-br from-header2/5 to-bgutama/50 p-3 rounded-xl border-2 border-header2/30 transition-all duration-300">
+               {!isReturStaging ? (
+                <div className="mt-2 bg-gradient-to-br from-header2/5 to-bgutama/50 p-3 rounded-xl border-2 border-header2/30 transition-all duration-300">
                     <div className="flex justify-between items-center mb-2 pb-2 border-b border-header2/20">
-                      <span className="text-xs font-black text-header1 uppercase tracking-wider flex items-center gap-1">
+                    <span className="text-xs font-black text-header1 uppercase tracking-wider flex items-center gap-1">
                         <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 7h6m0 10v-3m-3 3h.01M9 17h.01M9 14h.01M12 14h.01M15 11h.01M12 11h.01M9 11h.01M7 21h10a2 2 0 002-2V5a2 2 0 00-2-2H7a2 2 0 00-2 2v14a2 2 0 002 2z"></path>
                         </svg>
                         Kalkulasi Laba
-                      </span>
-                      <span className={`font-black text-lg md:text-xl ${stgLaba.color}`}>{stgLaba.text}</span>
+                    </span>
+                    <span className={`font-black text-lg md:text-xl ${stgLaba.color}`}>{stgLaba.text}</span>
                     </div>
                     <pre className="text-[11px] md:text-xs font-mono text-teksgelap leading-relaxed whitespace-pre-line bg-white/50 p-2 rounded-lg border border-header2/10 min-h-[80px] max-h-[200px] overflow-y-auto">
-                      {stgLaba.uraian}
+                    {stgLaba.uraian}
                     </pre>
-                  </div>
+                </div>
                 ) : (
-                  <div className="mt-2 bg-aksen/5 p-3 rounded-xl border-2 border-aksen/30 transition-all duration-300">
+                <div className="mt-2 bg-aksen/5 p-3 rounded-xl border-2 border-aksen/30 transition-all duration-300">
                     <span className="text-xs font-black text-aksen uppercase tracking-wider flex items-center gap-1 mb-2 border-b border-aksen/20 pb-2">
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M16 15v-1a4 4 0 00-4-4H8m0 0l3 3m-3-3l3-3m9 14V5a2 2 0 00-2-2H6a2 2 0 00-2 2v16l4-2 4 2 4-2 4 2z"></path>
-                      </svg>
-                      Destinasi Stok Retur
+                    </svg>
+                    Destinasi Stok Retur
                     </span>
-                    <div className="flex gap-2 font-mono text-[11px]">
-                      {[1, 2, 3].map(b => (
-                        <button
-                          key={b}
-                          onClick={() => setReturTargetStaging(b)}
-                          className={`flex-1 text-center py-2 rounded border transition ${
-                            returTargetStaging === b 
-                              ? 'bg-aksen text-white border-aksen' 
-                              : 'border-aksen/30 text-aksen hover:bg-aksen/10'
-                          } font-bold`}
-                        >
-                          SB-{b}
-                        </button>
-                      ))}
+                    
+                    {/* INFO HARGA JUAL & HPP PER BATCH */}
+                    {stgForm.nama && (
+                    <div className="mb-3 bg-white/80 rounded-lg border border-aksen/20 p-2">
+                        <p className="text-[10px] font-black text-aksen uppercase tracking-wide mb-1.5">
+                        📊 Info Harga {stgForm.nama}
+                        </p>
+                        <div className="grid grid-cols-3 gap-1.5 text-[10px]">
+                        {[1, 2, 3].map(b => {
+                            const p = findProduk(stgForm.barcode);
+                            if (!p) return null;
+                            
+                            const hppBatch = p[`modal_${b}`] || 0;
+                            const jualBatch = p[`jual_${String.fromCharCode(96 + b)}`] || p[`jual_${b}`] || 0;
+                            const stokBatch = p[`jumlah_${b}`] || 0;
+                            
+                            return (
+                            <div 
+                                key={b} 
+                                className={`p-1.5 rounded border text-center ${
+                                returTargetStaging === b 
+                                    ? 'border-aksen bg-aksen/10' 
+                                    : 'border-footer2/20 bg-bgutama/50'
+                                }`}
+                            >
+                                <p className="font-black text-aksen mb-0.5">BATCH {b}</p>
+                                <p className="text-footer2">
+                                Stok: <b>{stokBatch}</b>
+                                </p>
+                                <p className="text-footer2">
+                                HPP: <b>Rp {hppBatch.toLocaleString('id-ID')}</b>
+                                </p>
+                                <p className="text-header1 font-bold">
+                                Jual: Rp {jualBatch.toLocaleString('id-ID')}
+                                </p>
+                            </div>
+                            );
+                        })}
+                        </div>
+                        <p className="text-[9px] text-footer2 mt-1.5 leading-tight">
+                        💡 Gunakan harga jual sesuai batch asal pembelian. Harga retur biasanya mengikuti harga beli pelanggan saat itu.
+                        </p>
                     </div>
+                    )}
+                    
+                    <div className="flex gap-2 font-mono text-[11px]">
+                    {[1, 2, 3].map(b => (
+                        <button
+                        key={b}
+                        onClick={() => setReturTargetStaging(b)}
+                        className={`flex-1 text-center py-2 rounded border transition ${
+                            returTargetStaging === b 
+                            ? 'bg-aksen text-white border-aksen' 
+                            : 'border-aksen/30 text-aksen hover:bg-aksen/10'
+                        } font-bold`}
+                        >
+                        SB-{b}
+                        </button>
+                    ))}
+                    </div>
+                    
+                    {/* TOMBOL CEPAT ISI HARGA */}
+                    {stgForm.nama && (
+                    <div className="mt-2 flex gap-1.5">
+                        {[1, 2, 3].map(b => {
+                        const p = findProduk(stgForm.barcode);
+                        if (!p) return null;
+                        
+                        const jualBatch = p[`jual_${String.fromCharCode(96 + b)}`] || p[`jual_${b}`] || 0;
+                        
+                        return (
+                            <button
+                            key={b}
+                            type="button"
+                            onClick={() => {
+                                setStgForm({...stgForm, harga: jualBatch.toString()});
+                                hitungLabaStaging(stgForm.barcode, stgForm.qty, jualBatch);
+                                refHarga.current?.focus();
+                                refHarga.current?.select();
+                            }}
+                            className="flex-1 text-[10px] py-1.5 px-2 rounded border border-aksen/30 text-aksen hover:bg-aksen hover:text-white transition font-bold"
+                            title={`Isi harga dengan harga jual Batch ${b}`}
+                            >
+                            Pakai Harga B{b}
+                            </button>
+                        );
+                        })}
+                    </div>
+                    )}
+                    
                     <p className="text-[10px] text-footer2 mt-2 leading-tight">
-                      Barang akan memotong tagihan dan stok akan dikembalikan ke Batch yang dipilih.
+                    Barang akan memotong tagihan dan stok akan dikembalikan ke Batch yang dipilih.
                     </p>
-                  </div>
-                )}
+                </div>
+               )}
 
                 <button 
                   ref={refBtnInput}
@@ -1431,73 +1736,115 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
               <div className="bg-bgutama px-3 py-3 flex text-[10px] font-bold text-footer2 border-b border-footer2/30 uppercase tracking-wider">
                 <div className="w-8 text-center shrink-0">x</div>
                 <div className="flex-1 min-w-0">PRODUK</div>
-                <div className="w-14 text-center shrink-0">QTY</div>
-                <div className="w-24 text-right shrink-0">HARGA</div>
-                <div className="w-28 text-right pr-2 shrink-0">SUBTOTAL</div>
+                <div className="w-12 text-center shrink-0">QTY</div>
+                <div className="w-20 text-right shrink-0">HARGA</div>
+                <div className="w-28 text-right pr-2 shrink-0">HPP & LABA</div>
+                <div className="w-24 text-right pr-2 shrink-0">SUBTOTAL</div>
               </div>
               
               <div className="flex-1 overflow-y-auto min-h-0">
                 {keranjangPos.length === 0 ? (
-                  <div className="flex items-center justify-center h-full text-footer2 opacity-50">
+                    <div className="flex items-center justify-center h-full text-footer2 opacity-50">
                     <p className="text-sm italic">Keranjang kosong</p>
-                  </div>
+                    </div>
                 ) : (
-                  keranjangPos.map((item, idx) => {
+                    keranjangPos.map((item, idx) => {
                     const subtotal = item.qty * item.harga;
                     const isRetur = item.qty < 0;
                     
+                    // Hitung HPP per item
+                    const p = findProduk(item.qr);
+                    let totalHPP = 0;
+                    
+                    if (p && item.qty > 0) {
+                        let sisaQty = Math.abs(item.qty);
+                        let qtyDiKeranjangLain = keranjangPos
+                        .filter((k, kidx) => kidx < idx && k.qr === item.qr && k.qty > 0)
+                        .reduce((acc, curr) => acc + curr.qty, 0);
+                        
+                        let j1 = Number(p.jumlah_1 || 0), m1 = Number(p.modal_1 || 0);
+                        let j2 = Number(p.jumlah_2 || 0), m2 = Number(p.modal_2 || 0);
+                        let j3 = Number(p.jumlah_3 || 0), m3 = Number(p.modal_3 || 0);
+                        
+                        let sisaPotong = qtyDiKeranjangLain;
+                        if (j1 > 0 && sisaPotong > 0) { let potong = Math.min(j1, sisaPotong); j1 -= potong; sisaPotong -= potong; }
+                        if (j2 > 0 && sisaPotong > 0) { let potong = Math.min(j2, sisaPotong); j2 -= potong; sisaPotong -= potong; }
+                        if (j3 > 0 && sisaPotong > 0) { let potong = Math.min(j3, sisaPotong); j3 -= potong; sisaPotong -= potong; }
+                        
+                        if (j1 > 0 && sisaQty > 0) { let potong = Math.min(j1, sisaQty); totalHPP += potong * m1; sisaQty -= potong; }
+                        if (j2 > 0 && sisaQty > 0) { let potong = Math.min(j2, sisaQty); totalHPP += potong * m2; sisaQty -= potong; }
+                        if (j3 > 0 && sisaQty > 0) { let potong = Math.min(j3, sisaQty); totalHPP += potong * m3; sisaQty -= potong; }
+                    }
+                    
+                    const laba = subtotal - totalHPP;
+                    
                     return (
-                      <div 
+                        <div 
                         key={idx} 
                         className={`flex items-center px-3 py-3 border-b text-xs md:text-sm text-teksgelap group transition ${
-                          isRetur ? 'bg-aksen/10 hover:bg-aksen/20 border-aksen/30' : 'bg-white hover:bg-bgutama/50 border-footer2/10'
+                            isRetur ? 'bg-aksen/10 hover:bg-aksen/20 border-aksen/30' : 'bg-white hover:bg-bgutama/50 border-footer2/10'
                         }`}
-                      >
-                        <div className="w-8 text-center">
-                          <button 
+                        >
+                        <div className="w-8 text-center shrink-0">
+                            <button 
                             onClick={() => hapusItemKeranjang(idx)}
                             className="text-aksen/50 hover:text-aksen p-1 rounded font-black transition text-sm md:text-lg"
-                          >
+                            >
                             ✕
-                          </button>
+                            </button>
                         </div>
                         
-                        <div className="flex-1 pr-1 truncate font-semibold">
-                          {item.nama}
-                          <span className="bg-header2/10 text-header1 px-1.5 py-0.5 rounded text-[10px] ml-1 font-mono">
+                        <div className="flex-1 pr-1 truncate font-semibold min-w-0">
+                            {item.nama}
+                            <span className="bg-header2/10 text-header1 px-1.5 py-0.5 rounded text-[10px] ml-1 font-mono">
                             [{item.tipeHarga}]
-                          </span>
-                          {isRetur && (
-                            <span className="bg-aksen text-white px-1.5 py-0.5 rounded text-[10px] ml-1 font-bold">
-                              [RETUR SB-{item.returTarget}]
                             </span>
-                          )}
+                            {isRetur && (
+                            <span className="bg-aksen text-white px-1.5 py-0.5 rounded text-[10px] ml-1 font-bold">
+                                [RETUR SB-{item.returTarget}]
+                            </span>
+                            )}
                         </div>
                         
-                        <div className="w-14 flex justify-center">
-                          <input 
+                        <div className="w-12 flex justify-center shrink-0">
+                            <input 
                             type="number" 
                             min={isRetur ? "" : "1"}
                             value={item.qty}
                             onChange={(e) => updateQtyKeranjang(idx, Number(e.target.value))}
-                            className={`w-12 p-1 text-center font-bold bg-transparent border border-transparent hover:border-footer2/30 hover:bg-white focus:bg-white focus:border-header1 focus:outline-none rounded transition appearance-none text-xs md:text-sm ${
-                              isRetur ? 'text-aksen' : ''
+                            className={`w-10 p-1 text-center font-bold bg-transparent border border-transparent hover:border-footer2/30 hover:bg-white focus:bg-white focus:border-header1 focus:outline-none rounded transition appearance-none text-xs md:text-sm ${
+                                isRetur ? 'text-aksen' : ''
                             }`}
-                          />
+                            />
                         </div>
                         
-                        <div className="w-24 flex justify-end">
-                          <span className="font-bold">{item.harga.toLocaleString('id-ID')}</span>
+                        <div className="w-20 text-right shrink-0">
+                            <span className="font-bold text-xs md:text-sm">{item.harga.toLocaleString('id-ID')}</span>
                         </div>
                         
-                        <div className={`w-28 text-right pr-2 font-black text-sm md:text-base ${
-                          isRetur ? 'text-aksen' : 'text-header1'
+                        <div className="w-28 text-right pr-2 flex flex-col justify-center shrink-0">
+                            {isRetur ? (
+                            <span className="text-[10px] text-aksen font-bold">Retur</span>
+                            ) : (
+                            <>
+                                <span className="text-[10px] font-mono text-footer2 truncate">
+                                HPP: {totalHPP.toLocaleString('id-ID')}
+                                </span>
+                                <span className={`text-[10px] font-bold truncate ${laba > 0 ? 'text-header1' : 'text-aksen'}`}>
+                                Laba: {laba > 0 ? '+' : ''}{laba.toLocaleString('id-ID')}
+                                </span>
+                            </>
+                            )}
+                        </div>
+                        
+                        <div className={`w-24 text-right pr-2 font-black text-sm md:text-base shrink-0 ${
+                            isRetur ? 'text-aksen' : 'text-header1'
                         }`}>
-                          {subtotal.toLocaleString('id-ID')}
+                            {subtotal.toLocaleString('id-ID')}
                         </div>
-                      </div>
+                        </div>
                     );
-                  })
+                    })
                 )}
               </div>
             </div>

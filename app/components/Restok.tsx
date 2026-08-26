@@ -6,6 +6,7 @@ const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: 
 
 export default function Restok({ onClose }: { onClose: () => void }) {
   const [dataMaster, setDataMaster] = useState<any>({ produk: [], supplier: [], karyawan: [], dompet: [], riwayat: [] });
+  const [pengaturan, setPengaturan] = useState<any>({});
   const [loading, setLoading] = useState(true);
   
   // State Sesi Petugas
@@ -32,21 +33,38 @@ export default function Restok({ onClose }: { onClose: () => void }) {
   const fetchData = async () => {
     setLoading(true);
     try {
-      const [resRiwayat, resProd, resSupp, resKary, resDompet] = await Promise.all([
-        fetch('/api/restok').then(r => r.json()), 
-        fetch('/api/produk').then(r => r.json()),
-        fetch('/api/supplier').then(r => r.json()), 
-        fetch('/api/karyawan').then(r => r.json()),
-        fetch('/api/dompet').then(r => r.json())
+      // Helper safeFetch anti-crash
+      const safeFetch = async (url: string) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) return null;
+          const text = await res.text();
+          if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) return null;
+          return text ? JSON.parse(text) : null;
+        } catch (e) { return null; }
+      };
+
+      const [resRiwayat, resProd, resSupp, resKary, resDompet, resPengaturan] = await Promise.all([
+        safeFetch('/api/restok'), 
+        safeFetch('/api/produk'),
+        safeFetch('/api/supplier'), 
+        safeFetch('/api/karyawan'),
+        safeFetch('/api/dompet'),
+        safeFetch('/api/pengaturan')
       ]);
       
       setDataMaster({ 
-        riwayat: resRiwayat.data || [], 
-        produk: resProd.data || [], 
-        supplier: resSupp.data || [], 
-        karyawan: resKary.data || [], 
-        dompet: resDompet.data || []
+        riwayat: resRiwayat?.data || [], 
+        produk: resProd?.data || [], 
+        supplier: resSupp?.data || [], 
+        karyawan: resKary?.data || [], 
+        dompet: resDompet?.data || []
       });
+
+      if (resPengaturan?.data) {
+        setPengaturan(Array.isArray(resPengaturan.data) ? resPengaturan.data[0] : resPengaturan.data);
+      }
+
     } catch (err) {
       console.error('Error fetching data:', err);
       Toast.fire({ icon: 'error', title: 'Gagal memuat data master' });
@@ -75,9 +93,9 @@ export default function Restok({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const navigasiInput = (e: React.KeyboardEvent, field: string) => {
+  const navigasiInput = (e: any, field: string) => {
     if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault();
+      if (e.preventDefault) e.preventDefault();
       if (field === 'qr') refQty.current?.focus();
       if (field === 'qty') refModal.current?.focus();
       if (field === 'modal') refBtn.current?.focus();
@@ -98,7 +116,7 @@ export default function Restok({ onClose }: { onClose: () => void }) {
     setTimeout(() => refQr.current?.focus(), 50);
   };
 
-  const hapusCart = (qr: string) => setCart(cart.filter(c => c.qr_barang !== qr));
+  const hapusCart = (qr: string, batch: number) => setCart(cart.filter((c, i) => !(c.qr_barang === qr && c.batch === batch)));
 
   // --- LOGIKA KALKULASI TAGIHAN (KANAN) ---
   const subtotalBruto = cart.reduce((sum, item) => sum + (item.qty_masuk * item.harga_beli_baru), 0);
@@ -111,6 +129,9 @@ export default function Restok({ onClose }: { onClose: () => void }) {
     if (cart.length === 0) return Swal.fire('Kosong', 'Keranjang restok kosong.', 'warning');
     if (!header.id_supplier) { refSupplier.current?.focus(); return Swal.fire('Supplier', 'Pilih supplier.', 'warning'); }
     if (nominalDibayar > 0 && !header.id_dompet) return Swal.fire('Dompet', 'Pilih dompet sumber dana.', 'warning');
+
+    const idFaktur = header.id_pembelian;
+    const suppName = dataMaster.supplier.find((s:any) => s.id_supplier === header.id_supplier)?.nama_supplier || header.id_supplier;
 
     const payloadHeader = {
       ...header, id_karyawan: petugasAktif.id,
@@ -125,16 +146,156 @@ export default function Restok({ onClose }: { onClose: () => void }) {
         body: JSON.stringify({ header: payloadHeader, details: cart })
       });
       const data = await res.json();
+      
       if (data.status === 'sukses') {
-        Swal.close(); Toast.fire({ icon: 'success', title: 'Restok Berhasil Disimpan!' });
-        setCart([]); 
-        setHeader({ id_pembelian: `FAK-${Date.now().toString().slice(-6)}`, id_supplier: '', nama_pengirim: '', status: 'Lunas', dibayar: 0, diskon: 0, biaya_lain: 0, id_dompet: '' });
-        fetchData();
-        refQr.current?.focus();
+        Swal.fire({
+          icon: 'success', title: 'Restok Berhasil!',
+          text: `Faktur: ${idFaktur}`,
+          showCancelButton: true, confirmButtonText: 'Cetak Bukti', cancelButtonText: 'Selesai',
+          confirmButtonColor: '#5A7718'
+        }).then((result) => {
+          if (result.isConfirmed) cetakStrukRestok(idFaktur, suppName, cart);
+          setCart([]); 
+          setHeader({ id_pembelian: `FAK-${Date.now().toString().slice(-6)}`, id_supplier: '', nama_pengirim: '', status: 'Lunas', dibayar: 0, diskon: 0, biaya_lain: 0, id_dompet: '' });
+          fetchData();
+          refQr.current?.focus();
+        });
       } else Swal.fire('Gagal', data.pesan, 'error');
     } catch (err) {
       Swal.fire('Error', 'Terjadi kesalahan saat menyimpan', 'error');
     }
+  };
+
+  // --- FUNGSI CETAK STRUK RESTOK ---
+  const cetakStrukRestok = (idFaktur: string, suppName: string, cartData: any[]) => {
+    const lebarKertas = (pengaturan?.Struk_Kertas === '80mm') ? '350px' : '280px';
+    const fontSizeStruk = pengaturan?.Struk_FontSize || '12px';
+    
+    const printWindow = window.open('', '_blank', 'width=400,height=600');
+    if (!printWindow) return;
+
+    let htmlContent = `
+    <html><head><title>Bukti Restok ${idFaktur}</title>
+    <style>
+      @page { margin: 0; }
+      body { font-family: 'Courier New', Courier, monospace; width: 100%; max-width: ${lebarKertas}; margin: 0 auto; padding: 10px; color: #000; font-size: ${fontSizeStruk}; }
+      .center { text-align: center; } .right { text-align: right; } .bold { font-weight: bold; }
+      table { width: 100%; border-collapse: collapse; }
+      td { vertical-align: top; padding: 2px 0; }
+      .border-dashed { border-bottom: 1px dashed #000; margin: 8px 0; }
+    </style>
+    </head><body>
+    `;
+
+    // 1. HEADER (H1 sampai H5)
+    for (let i = 1; i <= 5; i++) {
+      let barisHeader = pengaturan[`Struk_H${i}`];
+      if (barisHeader && barisHeader.trim() !== '') {
+        let styleCustom = (i === 1) ? 'font-size: 14px; font-weight: bold; margin-bottom: 3px;' : 'margin-bottom: 2px;';
+        htmlContent += `<div class="center" style="${styleCustom}">${barisHeader}</div>`;
+      }
+    }
+    
+    htmlContent += `<div class="center bold" style="margin-top: 5px; font-size: 13px;">BUKTI RESTOK / PEMBELIAN</div>`;
+    htmlContent += '<div class="border-dashed"></div>';
+    
+    // 2. METADATA (Sesuai Pengaturan Toggle & Label)
+    let adaInfo = false;
+    let htmlInfo = '<table>';
+    
+    // Helper: Jika undefined/null pakai bawaan, tapi jika sengaja dikosongkan ("") biarkan kosong
+    const getLabel = (val: any, defaultLabel: string) => {
+      if (val === undefined || val === null) return defaultLabel;
+      return val; 
+    };
+    
+    // Tampilkan HANYA jika checkbox benar-benar dicentang (bernilai 'true')
+    if (pengaturan.Struk_ShowID === 'true' || pengaturan.Struk_ShowID === true) {
+      let lblID = getLabel(pengaturan.Struk_Label_ID, 'No. TRX:');
+      htmlInfo += `<tr><td style="width: 35%;">${lblID}</td><td>: ${idFaktur}</td></tr>`;
+      adaInfo = true;
+    }
+    
+    if (pengaturan.Struk_ShowWaktu === 'true' || pengaturan.Struk_ShowWaktu === true) {
+      let lblWaktu = getLabel(pengaturan.Struk_Label_Waktu, 'Waktu:');
+      htmlInfo += `<tr><td>${lblWaktu}</td><td>: ${new Date().toLocaleString('id-ID')}</td></tr>`;
+      adaInfo = true;
+    }
+    
+    if (pengaturan.Struk_ShowKasir === 'true' || pengaturan.Struk_ShowKasir === true) {
+      let lblKasir = getLabel(pengaturan.Struk_Label_Kasir, 'Petugas:');
+      htmlInfo += `<tr><td>${lblKasir}</td><td>: ${petugasAktif.nama.substring(0, 15)}</td></tr>`;
+      adaInfo = true;
+    }
+    
+    if (pengaturan.Struk_ShowPlg === 'true' || pengaturan.Struk_ShowPlg === true) {
+      let lblPlg = getLabel(pengaturan.Struk_Label_Plg, 'Supplier:');
+      htmlInfo += `<tr><td>${lblPlg}</td><td>: ${suppName.substring(0, 15)}</td></tr>`;
+      adaInfo = true;
+    }
+    
+    htmlInfo += '</table>';
+    if (adaInfo) htmlContent += htmlInfo + '<div class="border-dashed"></div>';
+
+    // 3. ITEM BARANG
+    htmlContent += '<table>';
+    cartData.forEach(item => {
+      const subtotal = item.qty_masuk * item.harga_beli_baru;
+      htmlContent += `
+        <tr><td colspan="2" class="bold">${item.nama_barang} (B${item.batch})</td></tr>
+        <tr><td>${item.qty_masuk} x ${item.harga_beli_baru.toLocaleString('id-ID')}</td><td class="right">${subtotal.toLocaleString('id-ID')}</td></tr>
+      `;
+    });
+    htmlContent += '</table>';
+    htmlContent += '<div class="border-dashed"></div>';
+    
+    // 4. SUMMARY TAGIHAN
+    htmlContent += `
+    <table>
+      <tr><td>Subtotal</td><td class="right">${subtotalBruto.toLocaleString('id-ID')}</td></tr>
+      ${header.diskon > 0 ? `<tr><td>Diskon</td><td class="right">-${header.diskon.toLocaleString('id-ID')}</td></tr>` : ''}
+      ${header.biaya_lain > 0 ? `<tr><td>Biaya Lain</td><td class="right">+${header.biaya_lain.toLocaleString('id-ID')}</td></tr>` : ''}
+      <tr><td class="bold">GRAND TOTAL</td><td class="right bold">${grandTotal.toLocaleString('id-ID')}</td></tr>
+      <tr><td>Status</td><td class="right">${header.status}</td></tr>
+      <tr><td>Dibayar</td><td class="right">${nominalDibayar.toLocaleString('id-ID')}</td></tr>
+      ${sisaHutang > 0 ? `<tr><td class="bold">SISA HUTANG</td><td class="right bold">${sisaHutang.toLocaleString('id-ID')}</td></tr>` : ''}
+    </table>
+    <div class="border-dashed"></div>
+    `;
+
+    // 5. FOOTER (F1, F2, F3)
+    for (let i = 1; i <= 3; i++) {
+      let barisFooter = pengaturan[`Struk_F${i}`];
+      if (barisFooter && barisFooter.trim() !== '') {
+        htmlContent += `<div class="center" style="margin-bottom: 2px;">${barisFooter}</div>`;
+      }
+    }
+
+    // 6. QR CODE PROMOSI / INFO
+    let qr1Label = pengaturan.Struk_QR1_Label; let qr1Data = pengaturan.Struk_QR1_Data;
+    let qr2Label = pengaturan.Struk_QR2_Label; let qr2Data = pengaturan.Struk_QR2_Data;
+
+    if ((qr1Data && qr1Data.trim() !== '') || (qr2Data && qr2Data.trim() !== '')) {
+      htmlContent += '<div class="border-dashed"></div><div style="display: flex; justify-content: space-around; text-align: center; gap: 10px; margin-top: 5px;">';
+      
+      // Fallback text jika offline / gagal render
+      const fallbackQR = `this.outerHTML='<div style=\\'width:75px; height:75px; margin:0 auto; border:1px dashed #000; display:flex; align-items:center; justify-content:center; font-size:9px; font-style:italic;\\'>pratinjau tidak tersedia</div>'`;
+
+      if (qr1Data && qr1Data.trim() !== '') {
+        let apiQr1 = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qr1Data)}`;
+        htmlContent += `<div style="flex: 1;"><img src="${apiQr1}" width="75" height="75" onerror="${fallbackQR}"><div style="font-size: 9px; margin-top: 2px;">${qr1Label || ''}</div></div>`;
+      }
+      if (qr2Data && qr2Data.trim() !== '') {
+        let apiQr2 = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qr2Data)}`;
+        htmlContent += `<div style="flex: 1;"><img src="${apiQr2}" width="75" height="75" onerror="${fallbackQR}"><div style="font-size: 9px; margin-top: 2px;">${qr2Label || ''}</div></div>`;
+      }
+      htmlContent += '</div>';
+    }
+
+    htmlContent += '</body></html>';
+    
+    printWindow.document.write(htmlContent); printWindow.document.close(); printWindow.focus();
+    setTimeout(() => { printWindow.print(); }, 600);
   };
 
   // Fungsi untuk mendapatkan produk terdeteksi
@@ -153,7 +314,7 @@ export default function Restok({ onClose }: { onClose: () => void }) {
         <div className="absolute inset-0 z-50 flex items-center justify-center bg-black/70 backdrop-blur-sm">
           <div className="bg-white p-8 rounded-2xl shadow-2xl text-center">
             <div className="animate-spin text-4xl mb-4">⏳</div>
-            <p className="font-bold text-lg">Memuat data karyawan...</p>
+            <p className="font-bold text-lg">Memuat data master...</p>
           </div>
         </div>
       )}
@@ -211,7 +372,7 @@ export default function Restok({ onClose }: { onClose: () => void }) {
             
             <button 
               type="submit" 
-              disabled={dataMaster.karyawan.length === 0}
+              disabled={!petugasAktif.id}
               className="w-full bg-header1 text-white py-3 rounded-lg font-bold disabled:opacity-50 disabled:cursor-not-allowed"
             >
               Mulai Restok
@@ -243,7 +404,7 @@ export default function Restok({ onClose }: { onClose: () => void }) {
             <div className="grid grid-cols-1 md:grid-cols-10 gap-3 items-end">
               <div className="md:col-span-4 relative">
                 <label className="text-xs font-bold block mb-1">Cari Produk / Scan Barcode</label>
-                <input ref={refQr} list="list-prod" value={inpForm.qr} onChange={e => cariProduk(e.target.value)} onKeyDown={e => navigasiInput(e, 'qr')} placeholder="Ketik/Scan (Enter)..." className="w-full p-2.5 border rounded bg-bgutama font-bold" />
+                <input ref={refQr} list="list-prod" value={inpForm.qr} onChange={e => cariProduk(e.target.value)} onKeyDown={e => navigasiInput(e, 'qr')} placeholder="Ketik/Scan (Enter)..." className="w-full p-2.5 border rounded bg-bgutama font-bold focus:ring-1 outline-none" />
                 <datalist id="list-prod">
                   {dataMaster.produk.map((p: any) => (
                     <option key={p.qr} value={p.qr}>{p.nama_barang}</option>
@@ -252,15 +413,15 @@ export default function Restok({ onClose }: { onClose: () => void }) {
               </div>
               <div className="md:col-span-1">
                 <label className="text-xs font-bold block mb-1 text-center">Qty</label>
-                <input ref={refQty} type="number" min="1" value={inpForm.qty} onChange={e => setInpForm({...inpForm, qty: Number(e.target.value)})} onKeyDown={e => navigasiInput(e, 'qty')} className="w-full p-2.5 border rounded text-center font-bold" />
+                <input ref={refQty} type="number" min="1" value={inpForm.qty} onChange={e => setInpForm({...inpForm, qty: Number(e.target.value)})} onKeyDown={e => navigasiInput(e, 'qty')} className="w-full p-2.5 border rounded text-center font-bold focus:ring-1 outline-none" />
               </div>
               <div className="md:col-span-3">
                 <label className="text-xs font-bold block mb-1 text-header1">Modal Baru / Pcs (Rp)</label>
-                <input ref={refModal} type="number" value={inpForm.modal} onChange={e => setInpForm({...inpForm, modal: e.target.value})} onKeyDown={e => navigasiInput(e, 'modal')} className="w-full p-2.5 border rounded font-bold text-header1 bg-header2/10" />
+                <input ref={refModal} type="number" value={inpForm.modal} onChange={e => setInpForm({...inpForm, modal: e.target.value})} onKeyDown={e => navigasiInput(e, 'modal')} className="w-full p-2.5 border rounded font-bold text-header1 bg-header2/10 focus:ring-1 outline-none" />
               </div>
               <div className="md:col-span-2">
                 <label className="text-xs font-bold block mb-1">Target Batch</label>
-                <select value={inpForm.batch} onChange={e => setInpForm({...inpForm, batch: Number(e.target.value)})} className="w-full p-2.5 border rounded font-bold">
+                <select value={inpForm.batch} onChange={e => setInpForm({...inpForm, batch: Number(e.target.value)})} className="w-full p-2.5 border rounded font-bold focus:ring-1 outline-none">
                   <option value={1}>Batch 1</option>
                   <option value={2}>Batch 2</option>
                   <option value={3}>Batch 3</option>
@@ -268,115 +429,115 @@ export default function Restok({ onClose }: { onClose: () => void }) {
               </div>
             </div>
 
-{/* CARD PEMBANTU STOCK BATCH */}
-{produkTerdeteksi && (
-  <div className="mt-4 bg-gradient-to-br from-bgutama to-white p-4 rounded-xl border border-footer2/30">
-    <div className="flex justify-between items-center mb-3">
-      <h4 className="font-black text-sm text-header1">
-        📦 STOCK BATCH - {produkTerdeteksi.nama_barang}
-      </h4>
-      <button 
-        onClick={() => {
-          const modalLama = produkTerdeteksi.modal_1 || produkTerdeteksi.modal_2 || produkTerdeteksi.modal_3 || 0;
-          setInpForm({ ...inpForm, modal: modalLama.toString() });
-          refModal.current?.focus();
-        }}
-        className="text-xs bg-header2 text-white px-3 py-1 rounded font-bold hover:bg-header1 transition"
-      >
-        Pakai HPP Lama
-      </button>
-    </div>
-    
-    <div className="grid grid-cols-3 gap-3">
-      {/* Batch 1 */}
-      <div 
-        className={`p-3 rounded-lg border-2 cursor-pointer transition ${
-          inpForm.batch === 1 
-            ? 'border-header1 bg-header1/10 shadow-md' 
-            : 'border-gray-200 bg-white hover:border-header2/50'
-        }`}
-        onClick={() => setInpForm({ ...inpForm, batch: 1 })}
-      >
-        <div className="text-xs font-bold text-gray-500 mb-1">BATCH 1</div>
-        <div className="text-lg font-black text-header1">
-          {produkTerdeteksi.jumlah_1 || 0} <span className="text-xs font-bold text-gray-500">pcs</span>
-        </div>
-        <div className="text-xs font-bold text-aksen mt-1">
-          HPP: {formatRp(produkTerdeteksi.modal_1)}
-        </div>
-        <div className="text-xs text-gray-400 mt-1">
-          Jual: {formatRp(produkTerdeteksi.jual_a)}
-        </div>
-        {inpForm.batch === 1 && (
-          <div className="text-xs font-black text-header1 mt-1">✓ DIPILIH</div>
-        )}
-      </div>
+            {/* CARD PEMBANTU STOCK BATCH */}
+            {produkTerdeteksi && (
+              <div className="mt-4 bg-gradient-to-br from-bgutama to-white p-4 rounded-xl border border-footer2/30">
+                <div className="flex justify-between items-center mb-3">
+                  <h4 className="font-black text-sm text-header1">
+                    📦 STOCK BATCH - {produkTerdeteksi.nama_barang}
+                  </h4>
+                  <button 
+                    onClick={() => {
+                      const modalLama = produkTerdeteksi.modal_1 || produkTerdeteksi.modal_2 || produkTerdeteksi.modal_3 || 0;
+                      setInpForm({ ...inpForm, modal: modalLama.toString() });
+                      refModal.current?.focus();
+                    }}
+                    className="text-xs bg-header2 text-white px-3 py-1 rounded font-bold hover:bg-header1 transition"
+                  >
+                    Pakai HPP Lama
+                  </button>
+                </div>
+                
+                <div className="grid grid-cols-3 gap-3">
+                  {/* Batch 1 */}
+                  <div 
+                    className={`p-3 rounded-lg border-2 cursor-pointer transition ${
+                      inpForm.batch === 1 
+                        ? 'border-header1 bg-header1/10 shadow-md' 
+                        : 'border-gray-200 bg-white hover:border-header2/50'
+                    }`}
+                    onClick={() => setInpForm({ ...inpForm, batch: 1 })}
+                  >
+                    <div className="text-xs font-bold text-gray-500 mb-1">BATCH 1</div>
+                    <div className="text-lg font-black text-header1">
+                      {produkTerdeteksi.jumlah_1 || 0} <span className="text-xs font-bold text-gray-500">pcs</span>
+                    </div>
+                    <div className="text-xs font-bold text-aksen mt-1">
+                      HPP: {formatRp(produkTerdeteksi.modal_1)}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Jual: {formatRp(produkTerdeteksi.jual_a)}
+                    </div>
+                    {inpForm.batch === 1 && (
+                      <div className="text-xs font-black text-header1 mt-1">✓ DIPILIH</div>
+                    )}
+                  </div>
 
-      {/* Batch 2 */}
-      <div 
-        className={`p-3 rounded-lg border-2 cursor-pointer transition ${
-          inpForm.batch === 2 
-            ? 'border-header1 bg-header1/10 shadow-md' 
-            : 'border-gray-200 bg-white hover:border-header2/50'
-        }`}
-        onClick={() => setInpForm({ ...inpForm, batch: 2 })}
-      >
-        <div className="text-xs font-bold text-gray-500 mb-1">BATCH 2</div>
-        <div className="text-lg font-black text-header1">
-          {produkTerdeteksi.jumlah_2 || 0} <span className="text-xs font-bold text-gray-500">pcs</span>
-        </div>
-        <div className="text-xs font-bold text-aksen mt-1">
-          HPP: {formatRp(produkTerdeteksi.modal_2)}
-        </div>
-        <div className="text-xs text-gray-400 mt-1">
-          Jual: {formatRp(produkTerdeteksi.jual_b)}
-        </div>
-        {inpForm.batch === 2 && (
-          <div className="text-xs font-black text-header1 mt-1">✓ DIPILIH</div>
-        )}
-      </div>
+                  {/* Batch 2 */}
+                  <div 
+                    className={`p-3 rounded-lg border-2 cursor-pointer transition ${
+                      inpForm.batch === 2 
+                        ? 'border-header1 bg-header1/10 shadow-md' 
+                        : 'border-gray-200 bg-white hover:border-header2/50'
+                    }`}
+                    onClick={() => setInpForm({ ...inpForm, batch: 2 })}
+                  >
+                    <div className="text-xs font-bold text-gray-500 mb-1">BATCH 2</div>
+                    <div className="text-lg font-black text-header1">
+                      {produkTerdeteksi.jumlah_2 || 0} <span className="text-xs font-bold text-gray-500">pcs</span>
+                    </div>
+                    <div className="text-xs font-bold text-aksen mt-1">
+                      HPP: {formatRp(produkTerdeteksi.modal_2)}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Jual: {formatRp(produkTerdeteksi.jual_b)}
+                    </div>
+                    {inpForm.batch === 2 && (
+                      <div className="text-xs font-black text-header1 mt-1">✓ DIPILIH</div>
+                    )}
+                  </div>
 
-      {/* Batch 3 */}
-      <div 
-        className={`p-3 rounded-lg border-2 cursor-pointer transition ${
-          inpForm.batch === 3 
-            ? 'border-header1 bg-header1/10 shadow-md' 
-            : 'border-gray-200 bg-white hover:border-header2/50'
-        }`}
-        onClick={() => setInpForm({ ...inpForm, batch: 3 })}
-      >
-        <div className="text-xs font-bold text-gray-500 mb-1">BATCH 3</div>
-        <div className="text-lg font-black text-header1">
-          {produkTerdeteksi.jumlah_3 || 0} <span className="text-xs font-bold text-gray-500">pcs</span>
-        </div>
-        <div className="text-xs font-bold text-aksen mt-1">
-          HPP: {formatRp(produkTerdeteksi.modal_3)}
-        </div>
-        <div className="text-xs text-gray-400 mt-1">
-          Jual: {formatRp(produkTerdeteksi.jual_c)}
-        </div>
-        {inpForm.batch === 3 && (
-          <div className="text-xs font-black text-header1 mt-1">✓ DIPILIH</div>
-        )}
-      </div>
-    </div>
+                  {/* Batch 3 */}
+                  <div 
+                    className={`p-3 rounded-lg border-2 cursor-pointer transition ${
+                      inpForm.batch === 3 
+                        ? 'border-header1 bg-header1/10 shadow-md' 
+                        : 'border-gray-200 bg-white hover:border-header2/50'
+                    }`}
+                    onClick={() => setInpForm({ ...inpForm, batch: 3 })}
+                  >
+                    <div className="text-xs font-bold text-gray-500 mb-1">BATCH 3</div>
+                    <div className="text-lg font-black text-header1">
+                      {produkTerdeteksi.jumlah_3 || 0} <span className="text-xs font-bold text-gray-500">pcs</span>
+                    </div>
+                    <div className="text-xs font-bold text-aksen mt-1">
+                      HPP: {formatRp(produkTerdeteksi.modal_3)}
+                    </div>
+                    <div className="text-xs text-gray-400 mt-1">
+                      Jual: {formatRp(produkTerdeteksi.jual_c)}
+                    </div>
+                    {inpForm.batch === 3 && (
+                      <div className="text-xs font-black text-header1 mt-1">✓ DIPILIH</div>
+                    )}
+                  </div>
+                </div>
 
-    {/* Info Tambahan */}
-    <div className="mt-3 text-xs text-gray-500 flex justify-between items-center">
-      <span>
-        Total Stock: <b className="text-header1">
-          {(produkTerdeteksi.jumlah_1 || 0) + (produkTerdeteksi.jumlah_2 || 0) + (produkTerdeteksi.jumlah_3 || 0)} pcs
-        </b>
-      </span>
-      <span>
-        Kategori: <b>{produkTerdeteksi.kategori || '-'}</b>
-      </span>
-      <span>
-        QR: <b className="font-mono">{produkTerdeteksi.qr}</b>
-      </span>
-    </div>
-  </div>
-)}
+                {/* Info Tambahan */}
+                <div className="mt-3 text-xs text-gray-500 flex justify-between items-center flex-wrap gap-2">
+                  <span>
+                    Total Stock: <b className="text-header1">
+                      {(produkTerdeteksi.jumlah_1 || 0) + (produkTerdeteksi.jumlah_2 || 0) + (produkTerdeteksi.jumlah_3 || 0)} pcs
+                    </b>
+                  </span>
+                  <span>
+                    Kategori: <b>{produkTerdeteksi.kategori || '-'}</b>
+                  </span>
+                  <span>
+                    QR: <b className="font-mono">{produkTerdeteksi.qr}</b>
+                  </span>
+                </div>
+              </div>
+            )}
 
             {/* Produk terdeteksi */}
             {inpForm.nama && !produkTerdeteksi && (
@@ -393,34 +554,60 @@ export default function Restok({ onClose }: { onClose: () => void }) {
 
           <div className="bg-white rounded-2xl shadow-sm border border-footer2/20 overflow-hidden flex-1 flex flex-col min-h-[300px]">
             <div className="bg-header1 p-3 text-white flex justify-between font-bold text-sm">
-              <span>Daftar Barang</span>
+              <span>Daftar Barang (Detil Restok)</span>
               <span>{cart.length} Item</span>
             </div>
-            <div className="p-3 overflow-y-auto flex-1">
+            
+            {/* HEADER TABEL RINCIAN */}
+            <div className="bg-bgutama px-3 py-2 flex text-[10px] font-bold text-footer2 border-b uppercase tracking-wider">
+               <div className="w-8 text-center shrink-0">X</div>
+               <div className="flex-1 min-w-0">PRODUK & BATCH</div>
+               <div className="w-16 text-center shrink-0">QTY</div>
+               <div className="w-40 text-right pr-2 shrink-0">MODAL & POTENSI LABA</div>
+               <div className="w-28 text-right pr-2 shrink-0">SUBTOTAL</div>
+            </div>
+
+            <div className="overflow-y-auto flex-1">
               {cart.length === 0 ? (
-                <p className="text-center text-gray-400 py-10">Belum ada barang dalam keranjang</p>
+                <p className="text-center text-gray-400 py-10 text-sm italic">Belum ada barang dalam keranjang</p>
               ) : (
-                cart.map((c, i) => (
-                  <div key={i} className="flex justify-between items-center border-b py-3">
-                    <div>
-                      <h4 className="font-bold text-sm">
-                        {c.nama_barang} 
-                        <span className="bg-bgutama p-1 text-xs border rounded ml-2">{c.qr_barang}</span>
-                      </h4>
-                      <p className="text-xs font-semibold">
-                        {c.qty_masuk} pcs [B{c.batch}] x Rp {c.harga_beli_baru.toLocaleString('id-ID')}
-                      </p>
+                cart.map((c, i) => {
+                  const pInfo = dataMaster.produk.find((p:any) => p.qr === c.qr_barang) || {};
+                  const targetJual = c.batch === 1 ? pInfo.jual_a : (c.batch === 2 ? pInfo.jual_b : pInfo.jual_c);
+                  
+                  const subHpp = c.qty_masuk * c.harga_beli_baru;
+                  const potensiLaba = (Number(targetJual || 0) - c.harga_beli_baru) * c.qty_masuk;
+
+                  return (
+                  <div key={i} className="flex items-center border-b px-3 py-3 hover:bg-bgutama/30 transition">
+                    <div className="w-8 text-center">
+                       <button onClick={() => hapusCart(c.qr_barang, c.batch)} className="text-aksen/60 hover:text-aksen font-black text-sm">✕</button>
                     </div>
-                    <div className="flex gap-4 items-center">
-                      <span className="font-black text-header1">
-                        Rp {(c.qty_masuk * c.harga_beli_baru).toLocaleString('id-ID')}
-                      </span>
-                      <button onClick={() => hapusCart(c.qr_barang)} className="text-red-500 font-bold hover:bg-red-50 p-2 rounded">
-                        ✕
-                      </button>
+                    <div className="flex-1 min-w-0 pr-2">
+                      <h4 className="font-bold text-sm text-teksgelap truncate">{c.nama_barang}</h4>
+                      <div className="flex gap-1 mt-1">
+                        <span className="bg-header2/10 text-header1 font-bold p-1 text-[9px] border rounded">BATCH {c.batch}</span>
+                        <span className="bg-bgutama text-footer2 p-1 text-[9px] border rounded font-mono">{c.qr_barang}</span>
+                      </div>
+                    </div>
+                    <div className="w-16 text-center font-black text-header1">{c.qty_masuk}</div>
+                    
+                    {/* KOLOM HARGA, HPP, LABA */}
+                    <div className="w-40 text-right pr-2 flex flex-col justify-center">
+                      <div className="font-black text-sm text-header1">{c.harga_beli_baru.toLocaleString('id-ID')} <span className="text-[9px] font-normal text-footer2">/pcs</span></div>
+                      <div className="text-[10px] font-mono mt-0.5">
+                        <span className="text-footer2 block">HPP: {subHpp.toLocaleString('id-ID')}</span>
+                        <span className={`block font-bold ${potensiLaba > 0 ? 'text-header1' : 'text-aksen'}`}>
+                          Laba: {potensiLaba > 0 ? '+' : ''}{potensiLaba.toLocaleString('id-ID')}
+                        </span>
+                      </div>
+                    </div>
+                    
+                    <div className="w-28 text-right pr-2 font-black text-header1 text-base">
+                      {subHpp.toLocaleString('id-ID')}
                     </div>
                   </div>
-                ))
+                )})
               )}
             </div>
           </div>
@@ -434,13 +621,15 @@ export default function Restok({ onClose }: { onClose: () => void }) {
               <label className="text-xs font-bold mb-1 block">Cari Supplier</label>
               <input ref={refSupplier} list="list-supp" placeholder="Ketik/Pilih Supplier..." 
                 onChange={e => {
+                  const val = e.target.value;
                   const s = dataMaster.supplier.find((x: any) => 
-                    `${x.id_supplier} - ${x.nama_supplier}` === e.target.value || 
-                    x.nama_supplier === e.target.value
+                    `${x.id_supplier} - ${x.nama_supplier}` === val || 
+                    x.nama_supplier === val || 
+                    x.id_supplier === val
                   );
                   if (s) setHeader({ ...header, id_supplier: s.id_supplier });
                 }} 
-                className="w-full p-2 border rounded font-bold" 
+                className="w-full p-2 border rounded font-bold focus:ring-1 outline-none" 
               />
               <datalist id="list-supp">
                 {dataMaster.supplier.map((s: any) => (
@@ -452,7 +641,7 @@ export default function Restok({ onClose }: { onClose: () => void }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-bold mb-1 block">Status</label>
-                <select value={header.status} onChange={e => setHeader({...header, status: e.target.value})} className="w-full p-2 border rounded font-bold bg-bgutama">
+                <select value={header.status} onChange={e => setHeader({...header, status: e.target.value})} className="w-full p-2 border rounded font-bold bg-bgutama outline-none">
                   <option value="Lunas">Lunas</option>
                   <option value="Hutang">Hutang / Tempo</option>
                 </select>
@@ -460,7 +649,7 @@ export default function Restok({ onClose }: { onClose: () => void }) {
               {header.status === 'Hutang' && (
                 <div>
                   <label className="text-xs font-bold mb-1 block">DP (Dibayar)</label>
-                  <input type="number" value={header.dibayar} onChange={e => setHeader({...header, dibayar: Number(e.target.value)})} className="w-full p-2 border rounded font-bold text-aksen" />
+                  <input type="number" value={header.dibayar} onChange={e => setHeader({...header, dibayar: Number(e.target.value)})} className="w-full p-2 border rounded font-bold text-aksen outline-none" />
                 </div>
               )}
             </div>
@@ -472,11 +661,12 @@ export default function Restok({ onClose }: { onClose: () => void }) {
                   onChange={e => {
                     const d = dataMaster.dompet.find((x: any) => 
                       `${x.id_dompet} - ${x.nama_dompet}` === e.target.value || 
-                      x.nama_dompet === e.target.value
+                      x.nama_dompet === e.target.value ||
+                      x.id_dompet === e.target.value
                     );
                     if (d) setHeader({ ...header, id_dompet: d.id_dompet });
                   }} 
-                  className="w-full p-2 border border-header2 rounded font-bold" 
+                  className="w-full p-2 border border-header2 rounded font-bold outline-none" 
                 />
                 <datalist id="list-dompet">
                   {dataMaster.dompet.map((d: any) => (
@@ -490,11 +680,11 @@ export default function Restok({ onClose }: { onClose: () => void }) {
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <label className="text-xs font-bold mb-1 block">Diskon Faktur (Rp)</label>
-                <input type="number" value={header.diskon || ''} onChange={e => setHeader({...header, diskon: Number(e.target.value)})} className="w-full p-2 border rounded font-bold text-header1" />
+                <input type="number" value={header.diskon || ''} onChange={e => setHeader({...header, diskon: Number(e.target.value)})} className="w-full p-2 border rounded font-bold text-header1 outline-none" />
               </div>
               <div>
                 <label className="text-xs font-bold mb-1 block">Biaya Lain (Rp)</label>
-                <input type="number" value={header.biaya_lain || ''} onChange={e => setHeader({...header, biaya_lain: Number(e.target.value)})} className="w-full p-2 border rounded font-bold text-aksen" />
+                <input type="number" value={header.biaya_lain || ''} onChange={e => setHeader({...header, biaya_lain: Number(e.target.value)})} className="w-full p-2 border rounded font-bold text-aksen outline-none" />
               </div>
             </div>
           </div>
@@ -505,7 +695,7 @@ export default function Restok({ onClose }: { onClose: () => void }) {
               <span>Rp {subtotalBruto.toLocaleString('id-ID')}</span>
             </div>
             <div className="text-xs font-bold text-footer2 mb-1">Grand Total Tagihan</div>
-            <div className="text-3xl font-black text-header1 mb-4">Rp {grandTotal.toLocaleString('id-ID')}</div>
+            <div className="text-3xl font-black text-header1 mb-4 truncate">Rp {grandTotal.toLocaleString('id-ID')}</div>
             <button onClick={handleSimpanTransaksi} className="w-full bg-header1 text-white font-black py-4 rounded-xl shadow transition hover:bg-header2">
               SIMPAN (F12)
             </button>
