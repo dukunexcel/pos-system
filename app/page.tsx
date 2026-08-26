@@ -11,6 +11,7 @@ import Restok from './components/Restok';
 import Kasir from './components/Kasir';
 import JurnalTransaksi from './components/JurnalTransaksi';
 import Laporan from './components/Laporan';
+import Marketplace from './components/Marketplace';
 
 export default function POSSystem() {
   const [isAuth, setIsAuth] = useState(false);
@@ -127,6 +128,16 @@ export default function POSSystem() {
               <span className="mt-3 text-xs md:text-sm font-bold text-teksgelap">Kasir (POS)</span>
             </button>
 
+            {/* Tombol POS (Online) */}
+            <button onClick={() => setActiveModule('modul_online')} className="flex flex-col items-center p-3 rounded-xl hover:bg-header2/10 transition group border border-transparent hover:border-header2/20">
+              <div className="w-14 h-14 bg-header1 text-white rounded-lg flex items-center justify-center shadow-md group-hover:-translate-y-1 transition transform">
+                <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5h12M9 10h12M9 15h6M9 19h6M3 5h.01M3 10h.01M3 15h.01M3 19h.01"></path>
+                </svg>
+              </div>
+              <span className="mt-3 text-xs md:text-sm font-bold text-teksgelap">POS (Online)</span>
+            </button>
+
             {/* Tombol Produk */}
             <button onClick={() => setActiveModule('produk')} className="flex flex-col items-center p-3 rounded-xl hover:bg-header2/10 transition group border border-transparent hover:border-header2/20">
               <div className="w-14 h-14 bg-footer2 text-white rounded-lg flex items-center justify-center shadow-md group-hover:-translate-y-1 transition transform">
@@ -199,15 +210,12 @@ export default function POSSystem() {
       {activeModule === 'pengaturan' && (
         <div className="absolute inset-0 z-50 w-full h-full"><Pengaturan onClose={() => setActiveModule('')} /></div>
       )}
-
       {activeModule === 'produk' && (
         <div className="absolute inset-0 z-50 w-full h-full"><Produk onClose={() => setActiveModule('')} /></div>
       )}
-
       {activeModule === 'pelanggan' && (
         <div className="absolute inset-0 z-50 w-full h-full"><Pelanggan onClose={() => setActiveModule('')} /></div>
       )}
-
       {activeModule === 'karyawan' && (
         <div className="absolute inset-0 z-50 w-full h-full"><Karyawan onClose={() => setActiveModule('')} /></div>
       )}
@@ -220,6 +228,9 @@ export default function POSSystem() {
       {activeModule === 'kasir' && (
         <div className="absolute inset-0 z-50 w-full h-full"><Kasir onClose={() => setActiveModule('')} /></div>
       )}
+      {activeModule === 'modul_online' && (
+        <div className="absolute inset-0 z-50 w-full h-full"><Marketplace onClose={() => setActiveModule('')} /></div>
+      )}
       {activeModule === 'laporan' && (
         <div className="absolute inset-0 z-50 w-full h-full"><Laporan onClose={() => setActiveModule('')} /></div>
       )}
@@ -228,7 +239,7 @@ export default function POSSystem() {
       )}
 
       {/* Fallback untuk menu yang belum dibangun komponennya */}
-      {activeModule !== '' && activeModule !== 'pengaturan' && activeModule !== 'produk' && activeModule !== 'pelanggan' && activeModule !== 'karyawan' && activeModule !== 'supplier' && activeModule !== 'restok' && activeModule !== 'kasir' && activeModule !== 'laporan' && activeModule !== 'jurnal' && (
+      {activeModule !== '' && activeModule !== 'pengaturan' && activeModule !== 'produk' && activeModule !== 'pelanggan' && activeModule !== 'karyawan' && activeModule !== 'supplier' && activeModule !== 'restok' && activeModule !== 'kasir' && activeModule !== 'laporan' && activeModule !== 'jurnal' && activeModule !== 'modul_online' &&(
         <div className="absolute inset-0 z-50 w-full h-full bg-bgutama flex flex-col items-center justify-center">
           <div className="bg-white p-8 rounded-2xl shadow-xl flex flex-col items-center">
             <svg className="w-16 h-16 text-footer2 mb-4 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>
