@@ -330,7 +330,7 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
     });
   };
 
-  // --- FUNGSI CETAK ULANG STRUK ---
+// --- FUNGSI CETAK ULANG STRUK ---
   const cetakUlangStruk = (trx: any, detail: any) => {
     const isRestok = trx.tipe === 'RESTOK';
     const lebarKertas = (pengaturan?.Struk_Kertas === '80mm') ? '350px' : '280px';
@@ -348,16 +348,17 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
       @page { margin: 0; }
       body { font-family: 'Courier New', Courier, monospace; width: 100%; max-width: ${lebarKertas}; margin: 0 auto; padding: 10px; color: #000; font-size: ${fontSizeStruk}; }
       .center { text-align: center; } .right { text-align: right; } .bold { font-weight: bold; }
-      table { width: 100%; border-collapse: collapse; }
+      /* PERBAIKAN: Memaksa tabel mewarisi ukuran font dari body agar ikut membesar/mengecil */
+      table { width: 100%; border-collapse: collapse; font-size: inherit; }
       td { vertical-align: top; padding: 2px 0; }
       .border-dashed { border-bottom: 1px dashed #000; margin: 8px 0; }
-      .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 48px; color: rgba(0,0,0,0.08); font-weight: bold; pointer-events: none; }
+      .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 48px; color: rgba(0,0,0,0.08); font-weight: bold; pointer-events: none; z-index: -1; }
     </style>
     </head><body>
     <div class="watermark">CETAK ULANG</div>
     `;
 
-    // Header Toko
+    // 1. Header Toko
     for (let i = 1; i <= 5; i++) {
       let barisHeader = pengaturan[`Struk_H${i}`];
       if (barisHeader && barisHeader.trim() !== '') {
@@ -370,21 +371,39 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
     htmlContent += `<div class="center" style="font-size: 10px; margin-top: 3px;">*** CETAK ULANG ***</div>`;
     htmlContent += '<div class="border-dashed"></div>';
     
-    // Info Meta
-    htmlContent += '<table>';
-    htmlContent += `<tr><td style="width: 35%;">No. TRX</td><td>: ${trx.id_transaksi}</td></tr>`;
-    htmlContent += `<tr><td>Waktu</td><td>: ${formatWaktu(detail.header.waktu || detail.header.created_at)}</td></tr>`;
-    if (isRestok) {
-      htmlContent += `<tr><td>Supplier</td><td>: ${(detail.header.id_supplier || '-').substring(0, 15)}</td></tr>`;
-      htmlContent += `<tr><td>Pengirim</td><td>: ${(detail.header.nama_pengirim || '-').substring(0, 15)}</td></tr>`;
-    } else {
-      htmlContent += `<tr><td>Kasir</td><td>: ${(detail.header.id_karyawan || '-').substring(0, 15)}</td></tr>`;
-      htmlContent += `<tr><td>Pelanggan</td><td>: ${(detail.header.nama_pelanggan || '-').substring(0, 15)}</td></tr>`;
-    }
-    htmlContent += '</table>';
-    htmlContent += '<div class="border-dashed"></div>';
+    // 2. Info Metadata (Sesuai Pengaturan)
+    const getLabel = (val: any, defaultLabel: string) => (val === undefined || val === null) ? defaultLabel : val;
+    
+    // Helper untuk merender baris. Jika label kosong (""), titik dua (:) juga akan dihilangkan
+    const renderRow = (labelSetting: any, defaultLabel: string, value: string) => {
+      let lbl = getLabel(labelSetting, defaultLabel);
+      let separator = lbl.trim() !== '' ? ': ' : '';
+      return `<tr><td style="width: 35%;">${lbl}</td><td>${separator}${value}</td></tr>`;
+    };
 
-    // Item Barang
+    let htmlInfo = '';
+    
+    if (pengaturan.Struk_ShowID === 'true' || pengaturan.Struk_ShowID === true) {
+      htmlInfo += renderRow(pengaturan.Struk_Label_ID, 'No. TRX', trx.id_transaksi);
+    }
+    if (pengaturan.Struk_ShowWaktu === 'true' || pengaturan.Struk_ShowWaktu === true) {
+      let wkt = formatWaktu(detail.header.waktu || detail.header.created_at);
+      htmlInfo += renderRow(pengaturan.Struk_Label_Waktu, 'Waktu', wkt);
+    }
+    if (pengaturan.Struk_ShowKasir === 'true' || pengaturan.Struk_ShowKasir === true) {
+      let valKasir = isRestok ? (detail.header.nama_pengirim || '-') : (detail.header.id_karyawan || '-');
+      htmlInfo += renderRow(pengaturan.Struk_Label_Kasir, isRestok ? 'Pengirim' : 'Kasir', valKasir.substring(0, 15));
+    }
+    if (pengaturan.Struk_ShowPlg === 'true' || pengaturan.Struk_ShowPlg === true) {
+      let valPlg = isRestok ? (detail.header.id_supplier || '-') : (detail.header.nama_pelanggan || '-');
+      htmlInfo += renderRow(pengaturan.Struk_Label_Plg, isRestok ? 'Supplier' : 'Pelanggan', valPlg.substring(0, 15));
+    }
+
+    if (htmlInfo !== '') {
+      htmlContent += `<table>${htmlInfo}</table><div class="border-dashed"></div>`;
+    }
+
+    // 3. Item Barang
     htmlContent += '<table>';
     detail.items.forEach((item: any) => {
       if (isRestok) {
@@ -403,7 +422,7 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
     htmlContent += '</table>';
     htmlContent += '<div class="border-dashed"></div>';
     
-    // Summary
+    // 4. Summary
     htmlContent += '<table>';
     if (isRestok) {
       htmlContent += `
@@ -427,7 +446,7 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
     htmlContent += '</table>';
     htmlContent += '<div class="border-dashed"></div>';
 
-    // Footer
+    // 5. Footer
     for (let i = 1; i <= 3; i++) {
       let barisFooter = pengaturan[`Struk_F${i}`];
       if (barisFooter && barisFooter.trim() !== '') {
@@ -435,7 +454,7 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
       }
     }
 
-    // QR Code
+    // 6. QR Code
     let qr1Label = pengaturan.Struk_QR1_Label; let qr1Data = pengaturan.Struk_QR1_Data;
     let qr2Label = pengaturan.Struk_QR2_Label; let qr2Data = pengaturan.Struk_QR2_Data;
 

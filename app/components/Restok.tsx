@@ -166,8 +166,8 @@ export default function Restok({ onClose }: { onClose: () => void }) {
     }
   };
 
-  // --- FUNGSI CETAK STRUK RESTOK ---
-  const cetakStrukRestok = (idFaktur: string, suppName: string, cartData: any[]) => {
+    // --- FUNGSI CETAK STRUK RESTOK ---
+    const cetakStrukRestok = (idFaktur: string, suppName: string, cartData: any[]) => {
     const lebarKertas = (pengaturan?.Struk_Kertas === '80mm') ? '350px' : '280px';
     const fontSizeStruk = pengaturan?.Struk_FontSize || '12px';
     
@@ -180,7 +180,8 @@ export default function Restok({ onClose }: { onClose: () => void }) {
       @page { margin: 0; }
       body { font-family: 'Courier New', Courier, monospace; width: 100%; max-width: ${lebarKertas}; margin: 0 auto; padding: 10px; color: #000; font-size: ${fontSizeStruk}; }
       .center { text-align: center; } .right { text-align: right; } .bold { font-weight: bold; }
-      table { width: 100%; border-collapse: collapse; }
+      /* PERBAIKAN: Memaksa tabel mengikuti ukuran font dari body */
+      table { width: 100%; border-collapse: collapse; font-size: inherit; }
       td { vertical-align: top; padding: 2px 0; }
       .border-dashed { border-bottom: 1px dashed #000; margin: 8px 0; }
     </style>
@@ -200,42 +201,43 @@ export default function Restok({ onClose }: { onClose: () => void }) {
     htmlContent += '<div class="border-dashed"></div>';
     
     // 2. METADATA (Sesuai Pengaturan Toggle & Label)
-    let adaInfo = false;
-    let htmlInfo = '<table>';
+    const getLabel = (val: any, defaultLabel: string) => (val === undefined || val === null) ? defaultLabel : val;
     
-    // Helper: Jika undefined/null pakai bawaan, tapi jika sengaja dikosongkan ("") biarkan kosong
-    const getLabel = (val: any, defaultLabel: string) => {
-      if (val === undefined || val === null) return defaultLabel;
-      return val; 
+    // Helper: Jika label dikosongkan (""), titik dua (:) tidak akan dicetak
+    const renderRow = (labelSetting: any, defaultLabel: string, value: string) => {
+        let lbl = getLabel(labelSetting, defaultLabel);
+        let separator = lbl.trim() !== '' ? ': ' : '';
+        return `<tr><td style="width: 35%;">${lbl}</td><td>${separator}${value}</td></tr>`;
     };
+
+    let htmlInfo = '';
+    let adaInfo = false;
     
-    // Tampilkan HANYA jika checkbox benar-benar dicentang (bernilai 'true')
     if (pengaturan.Struk_ShowID === 'true' || pengaturan.Struk_ShowID === true) {
-      let lblID = getLabel(pengaturan.Struk_Label_ID, 'No. TRX:');
-      htmlInfo += `<tr><td style="width: 35%;">${lblID}</td><td>: ${idFaktur}</td></tr>`;
+      htmlInfo += renderRow(pengaturan.Struk_Label_ID, 'No. TRX', idFaktur);
       adaInfo = true;
     }
     
     if (pengaturan.Struk_ShowWaktu === 'true' || pengaturan.Struk_ShowWaktu === true) {
-      let lblWaktu = getLabel(pengaturan.Struk_Label_Waktu, 'Waktu:');
-      htmlInfo += `<tr><td>${lblWaktu}</td><td>: ${new Date().toLocaleString('id-ID')}</td></tr>`;
+      // Anda dapat menyesuaikan formatWaktu jika diperlukan. Menggunakan Date() saat ini sebagai fallback.
+      const waktuSekarang = new Date().toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+      htmlInfo += renderRow(pengaturan.Struk_Label_Waktu, 'Waktu', waktuSekarang);
       adaInfo = true;
     }
     
     if (pengaturan.Struk_ShowKasir === 'true' || pengaturan.Struk_ShowKasir === true) {
-      let lblKasir = getLabel(pengaturan.Struk_Label_Kasir, 'Petugas:');
-      htmlInfo += `<tr><td>${lblKasir}</td><td>: ${petugasAktif.nama.substring(0, 15)}</td></tr>`;
+      htmlInfo += renderRow(pengaturan.Struk_Label_Kasir, 'Petugas', petugasAktif.nama.substring(0, 15));
       adaInfo = true;
     }
     
     if (pengaturan.Struk_ShowPlg === 'true' || pengaturan.Struk_ShowPlg === true) {
-      let lblPlg = getLabel(pengaturan.Struk_Label_Plg, 'Supplier:');
-      htmlInfo += `<tr><td>${lblPlg}</td><td>: ${suppName.substring(0, 15)}</td></tr>`;
+      htmlInfo += renderRow(pengaturan.Struk_Label_Plg, 'Supplier', suppName.substring(0, 15));
       adaInfo = true;
     }
     
-    htmlInfo += '</table>';
-    if (adaInfo) htmlContent += htmlInfo + '<div class="border-dashed"></div>';
+    if (adaInfo) {
+      htmlContent += `<table>${htmlInfo}</table><div class="border-dashed"></div>`;
+    }
 
     // 3. ITEM BARANG
     htmlContent += '<table>';

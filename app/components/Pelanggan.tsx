@@ -1,16 +1,17 @@
 "use client";
 
 import { useState, useEffect } from 'react';
+import ExcelJS from 'exceljs';
 import Swal from 'sweetalert2';
 
-const Toast = Swal.mixin({
-  toast: true,
-  position: 'top-end',
-  showConfirmButton: false,
-  timer: 2500,
-  background: 'var(--color-bgutama)',
-  color: 'var(--color-teksgelap)'
-});
+// file-saver is untyped in this project, so avoid module augmentation for the default import.
+const saveAs = require('file-saver') as (
+  data: any,
+  filename?: string,
+  noAutoBom?: boolean,
+) => void;
+declare const XLSX: any;
+const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
 
 interface PelangganData {
   id_pelanggan: string;
@@ -93,6 +94,282 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
     }
     setVisibleCount(30);
   }, [searchQuery, pelangganList]);
+
+  // === Fungsi Download Template (Client-Side dengan Proteksi) ===
+const handleDownloadTemplate = async () => {
+  try {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('DataPelanggan');
+
+    // 1. Tentukan Struktur Kolom (Baris 1)
+    worksheet.columns = [
+      { header: 'id_pelanggan', key: 'id', width: 15 },
+      { header: 'tipe', key: 'tipe', width: 12 },
+      { header: 'nama', key: 'nama', width: 25 },
+      { header: 'wa', key: 'wa', width: 15 },
+      { header: 'alamat', key: 'alamat', width: 35 },
+      { header: 'saldo', key: 'saldo', width: 15 },
+      { header: 'piutang', key: 'piutang', width: 15 },
+      { header: 'poin_pembelian', key: 'poin', width: 15 },
+      { header: 'nominal_pembelian', key: 'nominal', width: 18 },
+      { header: 'foto', key: 'foto', width: 30 }
+    ];
+
+    // 2. Beri Styling pada Header agar Elegan
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    // Menggunakan warna yang sama dengan modul lain untuk konsistensi
+    headerRow.fill = { 
+      type: 'pattern', 
+      pattern: 'solid', 
+      fgColor: { argb: 'FF00ACC1' } 
+    };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+    headerRow.height = 30;
+
+    // 3. Kunci Seluruh Sheet dengan Password
+    await worksheet.protect('rahasia', {
+      selectLockedCells: true,
+      selectUnlockedCells: true,
+    });
+
+    // 4. Buka Kunci (Unlock) untuk Baris 2 hingga 1000 agar bisa diisi data
+    for (let i = 2; i <= 1000; i++) {
+      const row = worksheet.getRow(i);
+      row.protection = { locked: false };
+      
+      // Validasi untuk kolom tipe
+      row.getCell('tipe').dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Personal,Toko,Reseller,Distributor"'],
+        showErrorMessage: true,
+        errorTitle: 'Input tidak valid',
+        error: 'Pilih tipe pelanggan yang sesuai'
+      };
+      
+      // Format angka untuk kolom numerik
+      const numericColumns = ['saldo', 'piutang', 'poin', 'nominal'];
+      
+      numericColumns.forEach(key => {
+        const cell = row.getCell(key);
+        cell.numFmt = '#,##0';
+        cell.alignment = { horizontal: 'right' };
+      });
+      
+      // Format khusus untuk saldo dan piutang (dengan 2 desimal)
+      row.getCell('saldo').numFmt = '#,##0.00';
+      row.getCell('piutang').numFmt = '#,##0.00';
+    }
+
+    // 5. Tambahkan Contoh Data di Baris 2
+    const row2 = worksheet.addRow({
+      id: 'PLG-001',
+      tipe: 'Personal',
+      nama: 'Budi Santoso',
+      wa: '081234567890',
+      alamat: 'Jl. Melati No. 5, Jakarta Selatan',
+      saldo: 50000,
+      piutang: 0,
+      poin: 25,
+      nominal: 500000,
+      foto: 'https://drive.google.com/thumbnail?id=xxxxx&sz=w500'
+    });
+    // Buka kunci baris contoh ini agar bisa dihapus/diedit pengguna
+    row2.protection = { locked: false };
+    row2.font = { color: { argb: 'FF666666' }, italic: true };
+    // ExcelJS uses `note` for cell comments/notes in types
+    // https://github.com/exceljs/exceljs#notes
+    // Assign plain string notes for the example cells
+    // (TypeScript typings expose `note` on the Cell)
+    // Cell indexes are 1-based
+    row2.getCell(1).note = 'Contoh data - silakan hapus';
+    row2.getCell(10).note = 'Isi dengan URL foto atau link Google Drive';
+
+    // 6. Proses Download
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer]), 'Template_Pelanggan.xlsx');
+    
+    Toast.fire({ 
+      icon: 'success', 
+      title: 'Template pelanggan berhasil didownload!' 
+    });
+    
+  } catch (err) {
+    console.error('Download error:', err);
+    Swal.fire('Error', 'Gagal membuat template Excel', 'error');
+  }
+};
+
+// === Fungsi Upload & Eksekusi Data (Menggunakan ExcelJS) ===
+const handleUploadExcel = async (e: any) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // Reset input agar bisa upload file yang sama berulang kali
+  e.target.value = null;
+
+  const reader = new FileReader();
+  reader.onload = async (event: any) => {
+    try {
+      const buffer = event.target.result;
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+      
+      // Ambil sheet pertama
+      const worksheet = workbook.worksheets[0];
+      if (!worksheet) {
+        Swal.fire('Error', 'Tidak ada data di dalam file Excel', 'error');
+        return;
+      }
+
+      const jsonData: any[] = [];
+      const headers: string[] = [];
+
+      // Ambil nama kolom (Header) dari Baris 1
+      worksheet.getRow(1).eachCell((cell, colNumber) => {
+        headers[colNumber] = cell.text || cell.value?.toString() || '';
+      });
+
+      // Iterasi Baris 2 ke bawah untuk mengambil data
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return; // Lewati baris judul
+        
+        let rowData: any = {};
+        let isRowEmpty = true;
+
+        row.eachCell((cell, colNumber) => {
+          const header = headers[colNumber];
+          if (header) {
+            // Untuk kolom numerik, ambil value asli (bukan text)
+            const numericColumns = ['saldo', 'piutang', 'poin_pembelian', 'nominal_pembelian'];
+            
+            let cellValue;
+            if (numericColumns.includes(header) && cell.value !== null && cell.value !== undefined) {
+              // Jika nilai numerik, konversi ke number
+              cellValue = Number(cell.value) || 0;
+            } else {
+              cellValue = cell.text || cell.value?.toString() || '';
+            }
+            
+            rowData[header] = cellValue;
+            if (cellValue !== '' && cellValue !== 0) isRowEmpty = false;
+          }
+        });
+
+        // Hanya masukkan baris yang benar-benar ada isinya
+        if (!isRowEmpty) {
+          jsonData.push(rowData);
+        }
+      });
+
+      if (jsonData.length === 0) {
+        Swal.fire('Kosong', 'Tidak ada data pelanggan yang ditemukan di baris ke-2 dan seterusnya.', 'warning');
+        return;
+      }
+
+      // Validasi kolom wajib (NOT NULL) sesuai struktur database
+      const missingMandatory = jsonData.some(row => !row.id_pelanggan || !row.nama);
+      if (missingMandatory) {
+        Swal.fire('Error', 'Kolom id_pelanggan dan nama wajib diisi di semua baris!', 'error');
+        return;
+      }
+
+      // Validasi format nomor WA
+      const invalidPhone = jsonData.some(row => {
+        if (row.wa && row.wa.trim() !== '') {
+          // Hanya terima angka, minimal 10 digit, maksimal 15 digit
+          const phoneRegex = /^[0-9]{10,15}$/;
+          return !phoneRegex.test(row.wa.trim());
+        }
+        return false;
+      });
+      
+      if (invalidPhone) {
+        const confirmResult = await Swal.fire({
+          icon: 'warning',
+          title: 'Format Nomor WA Tidak Valid',
+          text: 'Beberapa nomor WA tidak sesuai format. Pastikan hanya berisi angka 10-15 digit tanpa spasi atau karakter khusus.',
+          showCancelButton: true,
+          confirmButtonText: 'Lanjutkan Tetap Upload',
+          cancelButtonText: 'Batalkan',
+          confirmButtonColor: 'var(--color-aksen)',
+          cancelButtonColor: 'var(--color-footer2)'
+        });
+        
+        if (!confirmResult.isConfirmed) {
+          return;
+        }
+      }
+
+      // Validasi format numerik
+      const numericColumns = ['saldo', 'piutang', 'poin_pembelian', 'nominal_pembelian'];
+      
+      const invalidNumeric = jsonData.some(row => {
+        return numericColumns.some(col => {
+          if (row[col] !== undefined && row[col] !== '' && row[col] !== 0) {
+            return isNaN(Number(row[col]));
+          }
+          return false;
+        });
+      });
+      
+      if (invalidNumeric) {
+        const confirmResult = await Swal.fire({
+          icon: 'warning',
+          title: 'Format Angka Tidak Valid',
+          text: 'Beberapa kolom saldo/piutang/poin/nominal berisi karakter non-angka. Pastikan hanya berisi angka.',
+          showCancelButton: true,
+          confirmButtonText: 'Lanjutkan Tetap Upload',
+          cancelButtonText: 'Batalkan',
+          confirmButtonColor: 'var(--color-aksen)',
+          cancelButtonColor: 'var(--color-footer2)'
+        });
+        
+        if (!confirmResult.isConfirmed) {
+          return;
+        }
+      }
+
+      // Jika validasi lolos, langsung proses
+      await processUpload(jsonData);
+
+    } catch (err: any) {
+      Swal.fire('Error', err.message || 'Gagal membaca format file', 'error');
+    }
+  };
+  
+  // Gunakan readAsArrayBuffer karena ExcelJS membacanya sebagai buffer
+  reader.readAsArrayBuffer(file);
+};
+
+// === Fungsi Helper untuk Proses Upload ===
+const processUpload = async (jsonData: any[]) => {
+  Swal.fire({ 
+    title: 'Memproses...', 
+    didOpen: () => Swal.showLoading(), 
+    allowOutsideClick: false 
+  });
+
+  try {
+    // Kirim ke API Endpoint (sesuaikan dengan endpoint pelanggan Anda)
+    const res = await fetch('/api/pelanggan/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: jsonData })
+    });
+
+    const result = await res.json();
+    if (result.status === 'sukses') {
+      Swal.fire('Berhasil', `${jsonData.length} data pelanggan ditambahkan!`, 'success');
+      fetchData(); // Panggil fungsi refresh state Anda
+    } else {
+      throw new Error(result.pesan || 'Gagal menyimpan ke database');
+    }
+  } catch (err: any) {
+    Swal.fire('Error', err.message || 'Gagal menyimpan data', 'error');
+  }
+};
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const val = e.target.type === 'number' ? Number(e.target.value) : e.target.value;
@@ -300,8 +577,20 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
         </button>
       </header>
 
-      {/* Action Bar */}
       <div className="px-4 md:px-8 py-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
+        {/* Action Bar (Excel) */}
+        <div className="flex flex-col sm:flex-row gap-3">
+          <button onClick={handleDownloadTemplate} className="bg-white border border-footer2/40 text-teksgelap p-2 md:px-4 md:py-2 rounded-lg text-sm font-semibold shadow-sm hover:border-header2 hover:text-header2 transition flex items-center gap-2">
+            <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4-4m0 0l-4-4m4 4V4"></path></svg>
+            <span className="hidden md:inline">Download Template</span>
+          </button>
+
+          <label className="bg-white border border-footer2/40 text-teksgelap p-2 md:px-4 md:py-2 rounded-lg text-sm font-semibold shadow-sm hover:border-header2 hover:text-header2 transition flex items-center gap-2 cursor-pointer">
+            <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path></svg>
+            <span className="hidden md:inline">Upload Excel</span>
+            <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleUploadExcel} />
+          </label>
+        </div>
         {/* Kanan: View Mode & Pencarian */}
         <div className="flex flex-col sm:flex-row gap-3 items-stretch sm:items-center w-full lg:w-auto justify-end ml-auto">
           {/* Toggle View Grid/Table */}

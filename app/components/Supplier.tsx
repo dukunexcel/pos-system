@@ -1,7 +1,14 @@
 "use client";
 import { useState, useEffect, useRef, useCallback } from 'react';
+import ExcelJS from 'exceljs';
 import Swal from 'sweetalert2';
 
+const saveAs = require('file-saver') as (
+  data: any,
+  filename?: string,
+  noAutoBom?: boolean,
+) => void;
+declare const XLSX: any;
 const Toast = Swal.mixin({
   toast: true,
   position: 'top-end',
@@ -124,6 +131,220 @@ export default function Supplier({ onClose }: { onClose: () => void }) {
     setShowDetailModal(false);
     setSelectedSupplier(null);
   };
+
+// === Fungsi Download Template (Client-Side dengan Proteksi) ===
+const handleDownloadTemplate = async () => {
+  try {
+    const workbook = new ExcelJS.Workbook();
+    const worksheet = workbook.addWorksheet('DataSupplier');
+
+    // 1. Tentukan Struktur Kolom (Baris 1)
+    worksheet.columns = [
+      { header: 'id_supplier', key: 'id', width: 15 },
+      { header: 'nama_supplier', key: 'nama', width: 25 },
+      { header: 'kontak_wa', key: 'kontak', width: 15 },
+      { header: 'alamat', key: 'alamat', width: 35 },
+      { header: 'status_aktif', key: 'status', width: 15 }
+    ];
+
+    // 2. Beri Styling pada Header agar Elegan
+    const headerRow = worksheet.getRow(1);
+    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+    // Menggunakan warna yang sama dengan modul Karyawan untuk konsistensi
+    headerRow.fill = { 
+      type: 'pattern', 
+      pattern: 'solid', 
+      fgColor: { argb: 'FF00ACC1' } 
+    };
+    headerRow.alignment = { vertical: 'middle', horizontal: 'center' };
+    headerRow.height = 25;
+
+    // 3. Kunci Seluruh Sheet dengan Password
+    await worksheet.protect('rahasia', {
+      selectLockedCells: true,
+      selectUnlockedCells: true,
+    });
+
+    // 4. Buka Kunci (Unlock) untuk Baris 2 hingga 1000 agar bisa diisi data
+    for (let i = 2; i <= 1000; i++) {
+      const row = worksheet.getRow(i);
+      row.protection = { locked: false };
+      
+      // Tambahkan validasi untuk kolom status_aktif
+      row.getCell('status').dataValidation = {
+        type: 'list',
+        allowBlank: true,
+        formulae: ['"Aktif,Nonaktif"'],
+        showErrorMessage: true,
+        errorTitle: 'Input tidak valid',
+        error: 'Pilih Aktif atau Nonaktif'
+      };
+    }
+
+    // 5. Tambahkan Contoh Data di Baris 2
+    const row2 = worksheet.addRow({
+      id: 'SUP-01',
+      nama: 'PT Sumber Makmur',
+      kontak: '08123456789',
+      alamat: 'Jl. Raya Industri No. 123, Jakarta',
+      status: 'Aktif'
+    });
+    // Buka kunci baris contoh ini agar bisa dihapus/diedit pengguna
+    row2.protection = { locked: false };
+    row2.font = { color: { argb: 'FF666666' }, italic: true };
+    // ExcelJS uses `note` for cell comments/notes
+    // https://github.com/exceljs/exceljs#comments
+    // Assign a simple note string for compatibility with ExcelJS types
+    // (Alternatively a more detailed note object can be used.)
+    // @ts-ignore
+    row2.getCell(1).note = 'Contoh data - silakan hapus';
+
+    // 6. Proses Download
+    const buffer = await workbook.xlsx.writeBuffer();
+    saveAs(new Blob([buffer]), 'Template_Supplier.xlsx');
+    
+    Toast.fire({ 
+      icon: 'success', 
+      title: 'Template supplier berhasil didownload!' 
+    });
+    
+  } catch (err) {
+    console.error('Download error:', err);
+    Swal.fire('Error', 'Gagal membuat template Excel', 'error');
+  }
+};
+
+// === Fungsi Upload & Eksekusi Data (Menggunakan ExcelJS) ===
+const handleUploadExcel = async (e: any) => {
+  const file = e.target.files[0];
+  if (!file) return;
+
+  // Reset input agar bisa upload file yang sama berulang kali
+  e.target.value = null;
+
+  const reader = new FileReader();
+  reader.onload = async (event: any) => {
+    try {
+      const buffer = event.target.result;
+      const workbook = new ExcelJS.Workbook();
+      await workbook.xlsx.load(buffer);
+      
+      // Ambil sheet pertama
+      const worksheet = workbook.worksheets[0];
+      if (!worksheet) {
+        Swal.fire('Error', 'Tidak ada data di dalam file Excel', 'error');
+        return;
+      }
+
+      const jsonData: any[] = [];
+      const headers: string[] = [];
+
+      // Ambil nama kolom (Header) dari Baris 1
+      worksheet.getRow(1).eachCell((cell, colNumber) => {
+        headers[colNumber] = cell.text || cell.value?.toString() || '';
+      });
+
+      // Iterasi Baris 2 ke bawah untuk mengambil data
+      worksheet.eachRow((row, rowNumber) => {
+        if (rowNumber === 1) return; // Lewati baris judul
+        
+        let rowData: any = {};
+        let isRowEmpty = true;
+
+        row.eachCell((cell, colNumber) => {
+          const header = headers[colNumber];
+          if (header) {
+            const cellValue = cell.text || cell.value?.toString() || '';
+            rowData[header] = cellValue;
+            if (cellValue.trim() !== '') isRowEmpty = false;
+          }
+        });
+
+        // Hanya masukkan baris yang benar-benar ada isinya
+        if (!isRowEmpty) {
+          jsonData.push(rowData);
+        }
+      });
+
+      if (jsonData.length === 0) {
+        Swal.fire('Kosong', 'Tidak ada data supplier yang ditemukan di baris ke-2 dan seterusnya.', 'warning');
+        return;
+      }
+
+      // Validasi kolom wajib (NOT NULL) sesuai struktur database
+      const missingMandatory = jsonData.some(row => !row.id_supplier || !row.nama_supplier);
+      if (missingMandatory) {
+        Swal.fire('Error', 'Kolom id_supplier dan nama_supplier wajib diisi di semua baris!', 'error');
+        return;
+      }
+
+      // Validasi format nomor WA (opsional, hanya peringatan)
+      const invalidPhone = jsonData.some(row => {
+        if (row.kontak_wa && row.kontak_wa.trim() !== '') {
+          // Hanya terima angka, minimal 10 digit, maksimal 15 digit
+          const phoneRegex = /^[0-9]{10,15}$/;
+          return !phoneRegex.test(row.kontak_wa.trim());
+        }
+        return false;
+      });
+      
+      if (invalidPhone) {
+        Swal.fire({
+          icon: 'warning',
+          title: 'Format Nomor WA Tidak Valid',
+          text: 'Beberapa nomor WA tidak sesuai format. Pastikan hanya berisi angka 10-15 digit tanpa spasi atau karakter khusus.',
+          showCancelButton: true,
+          confirmButtonText: 'Lanjutkan Tetap Upload',
+          cancelButtonText: 'Batalkan',
+          confirmButtonColor: 'var(--color-aksen)',
+          cancelButtonColor: 'var(--color-footer2)'
+        }).then((result) => {
+          if (result.isConfirmed) {
+            processUpload(jsonData);
+          }
+        });
+        return;
+      }
+
+      // Jika validasi lolos, langsung proses
+      await processUpload(jsonData);
+
+    } catch (err: any) {
+      Swal.fire('Error', err.message || 'Gagal membaca format file', 'error');
+    }
+  };
+  
+  // Gunakan readAsArrayBuffer karena ExcelJS membacanya sebagai buffer
+  reader.readAsArrayBuffer(file);
+};
+
+// === Fungsi Helper untuk Proses Upload ===
+const processUpload = async (jsonData: any[]) => {
+  Swal.fire({ 
+    title: 'Memproses...', 
+    didOpen: () => Swal.showLoading(), 
+    allowOutsideClick: false 
+  });
+
+  try {
+    // Kirim ke API Endpoint (sesuaikan dengan endpoint supplier Anda)
+    const res = await fetch('/api/supplier/bulk', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: jsonData })
+    });
+
+    const result = await res.json();
+    if (result.status === 'sukses') {
+      Swal.fire('Berhasil', `${jsonData.length} data supplier ditambahkan!`, 'success');
+      fetchData(); // Panggil fungsi refresh state Anda
+    } else {
+      throw new Error(result.pesan || 'Gagal menyimpan ke database');
+    }
+  } catch (err: any) {
+    Swal.fire('Error', err.message || 'Gagal menyimpan data', 'error');
+  }
+};
 
   const generateAutoId = () => {
     const rand = Math.floor(1000 + Math.random() * 9000);
@@ -263,7 +484,7 @@ export default function Supplier({ onClose }: { onClose: () => void }) {
         
         {/* Kiri: Aksi Excel */}
         <div className="flex gap-2 shrink-0">
-          <button 
+          <button onClick={handleDownloadTemplate}
             className="bg-white border border-footer2/40 text-teksgelap p-2 md:px-3 md:py-2 rounded-lg text-sm font-semibold shadow-sm hover:border-header2 hover:text-header2 transition flex items-center justify-center"
             title="Download Template"
           >
@@ -280,7 +501,7 @@ export default function Supplier({ onClose }: { onClose: () => void }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
             </svg>
             <span className="hidden md:inline ml-2">Upload</span>
-            <input type="file" className="hidden" accept=".xlsx, .xls" />
+            <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleUploadExcel}/>
           </label>
         </div>
 

@@ -1,8 +1,16 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import ExcelJS from 'exceljs';
 import Swal from 'sweetalert2';
 
+// file-saver is untyped in this project, so avoid module augmentation for the default import.
+const saveAs = require('file-saver') as (
+  data: any,
+  filename?: string,
+  noAutoBom?: boolean,
+) => void;
+declare const XLSX: any;
 const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
 
 export default function Produk({ onClose }: { onClose: () => void }) {
@@ -13,8 +21,13 @@ export default function Produk({ onClose }: { onClose: () => void }) {
   
   const [showModal, setShowModal] = useState(false);
   const [isEdit, setIsEdit] = useState(false);
-  const [showMultiGudang, setShowMultiGudang] = useState(false); // Sakelar hemat ruang
+  const [showMultiGudang, setShowMultiGudang] = useState(false);
   const [form, setForm] = useState<any>({});
+  const [searchQuery, setSearchQuery] = useState('');
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [tipeHargaTampil, setTipeHargaTampil] = useState<string>('A');
+  const [groupMode, setGroupMode] = useState<'none' | 'abjad' | 'kategori'>('none');
+  const [openAccordions, setOpenAccordions] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     fetchData();
@@ -45,7 +58,23 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     }
   };
 
-  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  // Filter produk berdasarkan search query
+  const filteredProduk = useMemo(() => {
+    if (!searchQuery.trim()) return produkList;
+    
+    const keyword = searchQuery.toLowerCase();
+    return produkList.filter(p => 
+      p.qr?.toLowerCase().includes(keyword) ||
+      p.nama_barang?.toLowerCase().includes(keyword) ||
+      p.kategori?.toLowerCase().includes(keyword)
+    );
+  }, [produkList, searchQuery]);
+
+  const clearSearch = () => {
+    setSearchQuery('');
+  };
+
+  const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement>) => {
     const val = e.target.type === 'number' ? Number(e.target.value) : e.target.value;
     setForm({ ...form, [e.target.name]: val });
   };
@@ -54,14 +83,13 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     if (produk) {
       setForm(produk);
       setIsEdit(true);
-      // Auto-buka form multi-gudang jika barang ini memang punya data di gudang 2 atau 3
       if (produk.jumlah_2 > 0 || produk.modal_2 > 0 || produk.jumlah_3 > 0 || produk.modal_3 > 0) {
         setShowMultiGudang(true);
       } else {
         setShowMultiGudang(false);
       }
     } else {
-      setForm({ qr: '', nama_barang: '', kategori: '', jumlah_1: 0, modal_1: 0 });
+      setForm({ qr: '', nama_barang: '', kategori: '', status_bpom: 'BPOM', tipe: 'Offline', jumlah_1: 0, modal_1: 0 });
       setIsEdit(false);
       setShowMultiGudang(false);
     }
@@ -91,140 +119,878 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     }
   };
 
+  const handleHapus = async (qr: string, nama: string) => {
+    const res = await Swal.fire({
+      title: 'Hapus Produk?',
+      text: `Yakin ingin menghapus "${nama}"?`,
+      icon: 'warning',
+      showCancelButton: true,
+      confirmButtonColor: 'var(--color-aksen)',
+      cancelButtonColor: 'var(--color-footer2)',
+      confirmButtonText: 'Ya, Hapus',
+      cancelButtonText: 'Batal'
+    });
+    
+    if (!res.isConfirmed) return;
+    
+    try {
+      const response = await fetch('/api/produk', {
+        method: 'DELETE',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ qr })
+      });
+      const data = await response.json();
+      if (data.status === 'sukses') {
+        Toast.fire({ icon: 'success', title: 'Produk terhapus!' });
+        fetchData();
+      } else {
+        Swal.fire('Error', data.pesan, 'error');
+      }
+    } catch (err) {
+      Swal.fire('Error', 'Gagal menghapus data', 'error');
+    }
+  };
+
+  // === Fungsi Download Template ===
+  const handleDownloadTemplate = async () => {
+    try {
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('DataProduk');
+
+      worksheet.columns = [
+        { header: 'qr', key: 'qr', width: 15 },
+        { header: 'nama_barang', key: 'nama', width: 25 },
+        { header: 'kategori', key: 'kategori', width: 15 },
+        { header: 'status_bpom', key: 'bpom', width: 15 },
+        { header: 'tipe', key: 'tipe', width: 12 },
+        { header: 'jumlah_1', key: 'jml1', width: 12 },
+        { header: 'modal_1', key: 'modal1', width: 12 },
+        { header: 'jumlah_2', key: 'jml2', width: 12 },
+        { header: 'modal_2', key: 'modal2', width: 12 },
+        { header: 'jumlah_3', key: 'jml3', width: 12 },
+        { header: 'modal_3', key: 'modal3', width: 12 },
+        { header: 'jual_a', key: 'jualA', width: 12 },
+        { header: 'jual_b', key: 'jualB', width: 12 },
+        { header: 'jual_c', key: 'jualC', width: 12 },
+        { header: 'jual_d', key: 'jualD', width: 12 },
+        { header: 'jual_e', key: 'jualE', width: 12 },
+        { header: 'jual_f', key: 'jualF', width: 12 },
+        { header: 'jual_g', key: 'jualG', width: 12 },
+        { header: 'jual_h', key: 'jualH', width: 12 },
+        { header: 'jual_i', key: 'jualI', width: 12 }
+      ];
+
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.fill = { 
+        type: 'pattern', 
+        pattern: 'solid', 
+        fgColor: { argb: 'FF00ACC1' } 
+      };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      headerRow.height = 30;
+
+      await worksheet.protect('rahasia', {
+        selectLockedCells: true,
+        selectUnlockedCells: true,
+      });
+
+      for (let i = 2; i <= 1000; i++) {
+        const row = worksheet.getRow(i);
+        row.protection = { locked: false };
+        
+        row.getCell('kategori').dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Makanan,Minuman,Snack,Produk Kecantikan,Produk Kesehatan,Perlengkapan,Lainnya"'],
+          showErrorMessage: true,
+          errorTitle: 'Input tidak valid',
+          error: 'Pilih kategori yang sesuai'
+        };
+        
+        row.getCell('bpom').dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"BPOM,Non BPOM,P-IRT,SP"'],
+          showErrorMessage: true,
+          errorTitle: 'Input tidak valid',
+          error: 'Pilih status BPOM yang sesuai'
+        };
+        
+        row.getCell('tipe').dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Offline,Online,Keduanya"'],
+          showErrorMessage: true,
+          errorTitle: 'Input tidak valid',
+          error: 'Pilih tipe yang sesuai'
+        };
+        
+        const numericColumns = ['jml1', 'modal1', 'jml2', 'modal2', 'jml3', 'modal3', 
+                               'jualA', 'jualB', 'jualC', 'jualD', 'jualE', 'jualF', 
+                               'jualG', 'jualH', 'jualI'];
+        
+        numericColumns.forEach(key => {
+          const cell = row.getCell(key);
+          cell.numFmt = '#,##0';
+          cell.alignment = { horizontal: 'right' };
+        });
+      }
+
+      const row2 = worksheet.addRow({
+        qr: 'BRG-001',
+        nama: 'Produk Contoh',
+        kategori: 'Makanan',
+        bpom: 'BPOM',
+        tipe: 'Offline',
+        jml1: 10,
+        modal1: 5000,
+        jml2: 20,
+        modal2: 4500,
+        jml3: 50,
+        modal3: 4000,
+        jualA: 8000,
+        jualB: 7500,
+        jualC: 7000,
+        jualD: 6500,
+        jualE: 6000,
+        jualF: 5500,
+        jualG: 5000,
+        jualH: 4500,
+        jualI: 4000
+      });
+      row2.protection = { locked: false };
+      row2.font = { color: { argb: 'FF666666' }, italic: true };
+      try {
+        (row2.getCell(1) as any).note = 'Contoh data - silakan hapus';
+      } catch {
+        (row2.getCell(1) as any).comment = 'Contoh data - silakan hapus';
+      }
+
+      const buffer = await workbook.xlsx.writeBuffer();
+      saveAs(new Blob([buffer]), 'Template_Produk.xlsx');
+      
+      Toast.fire({ 
+        icon: 'success', 
+        title: 'Template produk berhasil didownload!' 
+      });
+      
+    } catch (err) {
+      console.error('Download error:', err);
+      Swal.fire('Error', 'Gagal membuat template Excel', 'error');
+    }
+  };
+
+  // === Fungsi Upload Excel ===
+  const handleUploadExcel = async (e: any) => {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = null;
+
+    const reader = new FileReader();
+    reader.onload = async (event: any) => {
+      try {
+        const buffer = event.target.result;
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(buffer);
+        
+        const worksheet = workbook.worksheets[0];
+        if (!worksheet) {
+          Swal.fire('Error', 'Tidak ada data di dalam file Excel', 'error');
+          return;
+        }
+
+        const jsonData: any[] = [];
+        const headers: string[] = [];
+
+        worksheet.getRow(1).eachCell((cell, colNumber) => {
+          headers[colNumber] = cell.text || cell.value?.toString() || '';
+        });
+
+        worksheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return;
+          
+          let rowData: any = {};
+          let isRowEmpty = true;
+
+          row.eachCell((cell, colNumber) => {
+            const header = headers[colNumber];
+            if (header) {
+              const numericColumns = ['jumlah_1', 'modal_1', 'jumlah_2', 'modal_2', 
+                                      'jumlah_3', 'modal_3', 'jual_a', 'jual_b', 
+                                      'jual_c', 'jual_d', 'jual_e', 'jual_f', 
+                                      'jual_g', 'jual_h', 'jual_i'];
+              
+              let cellValue;
+              if (numericColumns.includes(header) && cell.value !== null && cell.value !== undefined) {
+                cellValue = Number(cell.value) || 0;
+              } else {
+                cellValue = cell.text || cell.value?.toString() || '';
+              }
+              
+              rowData[header] = cellValue;
+              if (cellValue !== '' && cellValue !== 0) isRowEmpty = false;
+            }
+          });
+
+          if (!isRowEmpty) {
+            jsonData.push(rowData);
+          }
+        });
+
+        if (jsonData.length === 0) {
+          Swal.fire('Kosong', 'Tidak ada data produk yang ditemukan.', 'warning');
+          return;
+        }
+
+        const missingMandatory = jsonData.some(row => !row.qr || !row.nama_barang);
+        if (missingMandatory) {
+          Swal.fire('Error', 'Kolom qr dan nama_barang wajib diisi!', 'error');
+          return;
+        }
+
+        Swal.fire({ title: 'Memproses...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+
+        const res = await fetch('/api/produk/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: jsonData })
+        });
+
+        const result = await res.json();
+        if (result.status === 'sukses') {
+          Swal.fire('Berhasil', `${jsonData.length} data produk ditambahkan!`, 'success');
+          fetchData();
+        } else {
+          throw new Error(result.pesan || 'Gagal menyimpan ke database');
+        }
+
+      } catch (err: any) {
+        Swal.fire('Error', err.message || 'Gagal membaca format file', 'error');
+      }
+    };
+    
+    reader.readAsArrayBuffer(file);
+  };
+
+  // === Helper Functions untuk Grid ===
+  const toggleAccordion = (accordionId: string) => {
+    setOpenAccordions(prev => {
+      const newSet = new Set(prev);
+      if (newSet.has(accordionId)) {
+        newSet.delete(accordionId);
+      } else {
+        newSet.add(accordionId);
+      }
+      return newSet;
+    });
+  };
+
+  const getHargaByTipe = (produk: any, tipe: string) => {
+    const keyHarga = `jual_${tipe.toLowerCase()}`;
+    return Number(produk[keyHarga] || 0);
+  };
+
+  const getModalAktif = (produk: any) => {
+    const j1 = Number(produk.jumlah_1 || 0);
+    const j2 = Number(produk.jumlah_2 || 0);
+    const j3 = Number(produk.jumlah_3 || 0);
+    
+    if (j1 > 0) return Number(produk.modal_1 || 0);
+    if (j2 > 0) return Number(produk.modal_2 || 0);
+    if (j3 > 0) return Number(produk.modal_3 || 0);
+    return Number(produk.modal_1 || 0);
+  };
+
+  // === Render Grid Items ===
+  const renderGridItems = (items: any[]) => {
+    return (
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2">
+        {items.map((p, index) => {
+          const j1 = Number(p.jumlah_1 || 0);
+          const j2 = Number(p.jumlah_2 || 0);
+          const j3 = Number(p.jumlah_3 || 0);
+          const stok = j1 + j2 + j3;
+          const modalAktif = getModalAktif(p);
+          const hargaJual = getHargaByTipe(p, tipeHargaTampil);
+
+          return (
+            <div 
+              key={index}
+              onClick={() => openModal(p)}
+              className="bg-white border border-footer2/30 hover:border-header1/50 rounded-lg p-3 shadow-sm cursor-pointer hover:shadow-md transition flex flex-col justify-between active:scale-95 group"
+            >
+              <div className="mb-2">
+                <div className="flex gap-1 flex-wrap mb-1">
+                  <span className="text-[10px] font-bold bg-bgutama text-footer2 px-2 py-0.5 rounded border border-footer2/20">
+                    Stok: {stok}
+                  </span>
+                  <span className="text-[10px] font-bold bg-header2/10 text-header1 px-2 py-0.5 rounded border border-header2/20">
+                    Rp{modalAktif.toLocaleString('id-ID')}
+                  </span>
+                  <span className="text-[10px] font-bold bg-header1/10 text-header1 px-2 py-0.5 rounded border border-header1/20">
+                    Tipe {tipeHargaTampil}
+                  </span>
+                </div>
+                <h4 className="font-bold text-teksgelap text-sm leading-tight line-clamp-2">
+                  {p.nama_barang}
+                </h4>
+              </div>
+              <p className="font-black text-header1 text-base">
+                Rp {hargaJual.toLocaleString('id-ID')}
+              </p>
+            </div>
+          );
+        })}
+      </div>
+    );
+  };
+
+  // === Render Grid dengan Pengelompokan ===
+  const renderGridProduk = () => {
+    if (loading) {
+      return <p className="text-footer2 italic text-sm col-span-full text-center py-8">Memuat data produk...</p>;
+    }
+    
+    if (filteredProduk.length === 0) {
+      return <p className="text-footer2 italic text-sm col-span-full text-center py-8">Tidak ada produk ditemukan.</p>;
+    }
+
+    if (groupMode === 'abjad') {
+      const sorted = [...filteredProduk].sort((a, b) => 
+        (a.nama_barang || '').localeCompare(b.nama_barang || '')
+      );
+
+      const groupsAbjad: Record<string, any[]> = {};
+      sorted.forEach(p => {
+        const hurufAwal = (p.nama_barang?.charAt(0) || '?').toUpperCase();
+        if (!groupsAbjad[hurufAwal]) groupsAbjad[hurufAwal] = [];
+        groupsAbjad[hurufAwal].push(p);
+      });
+
+      const sortedHuruf = Object.keys(groupsAbjad).sort((a, b) => a.localeCompare(b));
+
+      return (
+        <div className="space-y-2">
+          {sortedHuruf.map((huruf, idx) => {
+            const accordionId = `accordion-abjad-${huruf.toLowerCase()}`;
+            const isOpen = idx === 0 || openAccordions.has(accordionId);
+
+            return (
+              <div key={huruf} className="border border-footer2/20 rounded-lg overflow-hidden">
+                <button 
+                  onClick={() => toggleAccordion(accordionId)}
+                  className="w-full flex justify-between items-center px-4 py-3 bg-bgutama hover:bg-header2/10 transition text-left"
+                >
+                  <span className="font-bold text-sm text-header1 uppercase">
+                    {huruf} 
+                    <span className="text-footer2 text-xs font-normal ml-1">
+                      ({groupsAbjad[huruf].length} item)
+                    </span>
+                  </span>
+                  <svg 
+                    className={`w-5 h-5 text-footer2 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                  </svg>
+                </button>
+                {isOpen && (
+                  <div className="bg-white p-3">
+                    {renderGridItems(groupsAbjad[huruf])}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    } else if (groupMode === 'kategori') {
+      const groups: Record<string, any[]> = {};
+      filteredProduk.forEach(p => {
+        const kat = p.kategori || 'UMUM';
+        if (!groups[kat]) groups[kat] = [];
+        groups[kat].push(p);
+      });
+
+      const sortedCategories = Object.keys(groups).sort((a, b) => a.localeCompare(b));
+
+      return (
+        <div className="space-y-2">
+          {sortedCategories.map((kat, idx) => {
+            const accordionId = `accordion-${kat.replace(/[^a-zA-Z0-9]/g, '-').toLowerCase()}`;
+            const isOpen = idx === 0 || openAccordions.has(accordionId);
+
+            return (
+              <div key={kat} className="border border-footer2/20 rounded-lg overflow-hidden">
+                <button 
+                  onClick={() => toggleAccordion(accordionId)}
+                  className="w-full flex justify-between items-center px-4 py-3 bg-bgutama hover:bg-header2/10 transition text-left"
+                >
+                  <span className="font-bold text-sm text-header1 uppercase">
+                    {kat} 
+                    <span className="text-footer2 text-xs font-normal ml-1">
+                      ({groups[kat].length} item)
+                    </span>
+                  </span>
+                  <svg 
+                    className={`w-5 h-5 text-footer2 transition-transform duration-300 ${isOpen ? 'rotate-180' : ''}`}
+                    fill="none" 
+                    stroke="currentColor" 
+                    viewBox="0 0 24 24"
+                  >
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                  </svg>
+                </button>
+                {isOpen && (
+                  <div className="bg-white p-3">
+                    {renderGridItems(groups[kat])}
+                  </div>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      );
+    } else {
+      return renderGridItems(filteredProduk);
+    }
+  };
+
+  // === Render Table ===
+  const renderTableProduk = () => {
+    const keyHarga = `jual_${tipeHargaTampil.toLowerCase()}`;
+
+    return (
+      <table className="w-full text-sm">
+        <thead className="bg-bgutama border-b border-footer2/20 sticky top-0 z-10">
+          <tr>
+            <th className="px-4 py-3 text-left font-bold text-header1 text-xs uppercase tracking-wider">No</th>
+            <th className="px-4 py-3 text-left font-bold text-header1 text-xs uppercase tracking-wider">Kode QR</th>
+            <th className="px-4 py-3 text-left font-bold text-header1 text-xs uppercase tracking-wider">Nama Produk</th>
+            <th className="px-4 py-3 text-left font-bold text-header1 text-xs uppercase tracking-wider">Sektor</th>
+            <th className="px-4 py-3 text-center font-bold text-header1 text-xs uppercase tracking-wider">BPOM</th>
+            <th className="px-4 py-3 text-center font-bold text-header1 text-xs uppercase tracking-wider">Tipe</th>
+            <th className="px-4 py-3 text-center font-bold text-header1 text-xs uppercase tracking-wider">Total Stok</th>
+            <th className="px-4 py-3 text-right font-bold text-header1 text-xs uppercase tracking-wider">
+              <div className="flex items-center justify-end gap-2">
+                <span>Harga</span>
+                <select 
+                  value={tipeHargaTampil}
+                  onChange={(e) => setTipeHargaTampil(e.target.value)}
+                  className="text-xs border border-footer2/30 rounded px-2 py-0.5 bg-white font-bold text-header1"
+                >
+                  <option value="A">A</option>
+                  <option value="B">B</option>
+                  <option value="C">C</option>
+                  <option value="D">D</option>
+                  <option value="E">E</option>
+                  <option value="F">F</option>
+                  <option value="G">G</option>
+                  <option value="H">H</option>
+                  <option value="I">I</option>
+                </select>
+              </div>
+            </th>
+            <th className="px-4 py-3 text-center font-bold text-header1 text-xs uppercase tracking-wider">Aksi</th>
+          </tr>
+        </thead>
+        <tbody>
+          {loading ? (
+            <tr>
+              <td colSpan={9} className="text-center py-8 text-footer2 italic">Memuat data produk...</td>
+            </tr>
+          ) : filteredProduk.length === 0 ? (
+            <tr>
+              <td colSpan={9} className="text-center py-8 text-footer2 italic">Tidak ada produk ditemukan.</td>
+            </tr>
+          ) : (
+            filteredProduk.map((p, index) => {
+              const totalStok = (Number(p.jumlah_1) || 0) + (Number(p.jumlah_2) || 0) + (Number(p.jumlah_3) || 0);
+              const badgeBpom = p.status_bpom === 'BPOM' 
+                ? 'bg-header2/20 text-header1' 
+                : 'bg-amber-500/20 text-amber-700';
+              const badgeTipe = p.tipe === 'Keduanya' 
+                ? 'bg-blue-500/20 text-blue-700' 
+                : p.tipe === 'Online' 
+                  ? 'bg-purple-500/20 text-purple-700' 
+                  : 'bg-gray-500/20 text-gray-700';
+
+              return (
+                <tr key={index} className={`border-b border-footer2/10 hover:bg-bgutama/50 transition ${index % 2 === 0 ? 'bg-white' : 'bg-bgutama/30'}`}>
+                  <td className="px-4 py-3 text-footer2 font-medium">{index + 1}</td>
+                  <td className="px-4 py-3">
+                    <span className="text-xs font-mono bg-bgutama px-2 py-1 rounded text-footer2">{p.qr}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="font-bold text-teksgelap">{p.nama_barang}</span>
+                  </td>
+                  <td className="px-4 py-3">
+                    <span className="text-xs font-bold bg-header1 text-white px-2 py-1 rounded uppercase">
+                      {p.kategori || 'Umum'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`text-[10px] font-bold ${badgeBpom} px-2 py-1 rounded`}>
+                      {p.status_bpom || 'Non BPOM'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`text-[10px] font-bold ${badgeTipe} px-2 py-1 rounded`}>
+                      {p.tipe || 'Offline'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-center">
+                    <span className="font-bold text-teksgelap">{totalStok} pcs</span>
+                  </td>
+                  <td className="px-4 py-3 text-right">
+                    <div>
+                      <span className="font-bold text-header1">
+                        Rp {Number(p[keyHarga] || 0).toLocaleString('id-ID')}
+                      </span>
+                      <span className="text-[8px] text-footer2 block">Tipe {tipeHargaTampil}</span>
+                    </div>
+                  </td>
+                  <td className="px-4 py-3">
+                    <div className="flex items-center justify-center gap-1">
+                      <button 
+                        onClick={() => openModal(p)}
+                        className="text-header1 hover:bg-header2/10 p-1.5 rounded transition" 
+                        title="Edit"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z"></path>
+                        </svg>
+                      </button>
+                      <button 
+                        onClick={() => handleHapus(p.qr, p.nama_barang)}
+                        className="text-aksen hover:bg-aksen/10 p-1.5 rounded transition" 
+                        title="Hapus"
+                      >
+                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                        </svg>
+                      </button>
+                    </div>
+                  </td>
+                </tr>
+              );
+            })
+          )}
+        </tbody>
+      </table>
+    );
+  };
+
   return (
     <div className="h-full flex flex-col bg-bgutama animate-[fadeIn_0.3s_ease-in-out]">
-      <div className="bg-white p-4 border-b border-footer2/20 flex justify-between items-center shrink-0">
+      {/* Header Modul */}
+      <header className="bg-white px-4 md:px-8 py-4 flex justify-between items-center shadow-sm sticky top-0 z-10 border-b border-footer2/20">
         <div className="flex items-center gap-3">
-          <button onClick={onClose} className="bg-bgutama hover:bg-header2/20 text-header1 p-2 rounded-lg transition border">
-             <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path></svg>
+          <button onClick={onClose} className="text-footer1 hover:text-header1 transition bg-bglite p-2 rounded-lg border border-footer2/30">
+            <svg className="w-5 h-5 md:w-6 md:h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 19l-7-7 7-7"></path>
+            </svg>
           </button>
-          <div>
-            <h2 className="font-black text-header1 text-lg">Master Produk</h2>
-            <p className="text-[10px] text-footer2">Katalog & Harga Dasar</p>
+          <h2 className="text-lg md:text-2xl font-bold text-header1">Katalog Produk</h2>
+        </div>
+        <button 
+          onClick={() => openModal()} 
+          className="bg-header2 hover:bg-header1 text-white px-4 py-2 rounded-lg text-sm md:text-base font-bold shadow transition flex items-center gap-2"
+        >
+          <svg className="w-4 h-4 md:w-5 md:h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 4v16m8-8H4"></path>
+          </svg>
+          <span className="hidden md:inline">Tambah Produk</span>
+          <span className="inline md:hidden">Tambah</span>
+        </button>
+      </header>
+
+      {/* Action Bar & Search */}
+      <div className="px-4 md:px-8 py-4 flex flex-col lg:flex-row justify-between items-start lg:items-center gap-3">
+        {/* Kiri: Download & Upload */}
+        <div className="flex gap-2 shrink-0">
+          <button 
+            onClick={handleDownloadTemplate}
+            className="bg-white border border-footer2/40 text-teksgelap p-2 md:px-3 md:py-2 rounded-lg text-sm font-semibold shadow-sm hover:border-header2 hover:text-header2 transition flex items-center justify-center"
+            title="Download Template"
+          >
+            <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4-4m0 0l-4-4m4 4V4"></path>
+            </svg>
+            <span className="hidden md:inline ml-2">Download</span>
+          </button>
+          <label 
+            className="bg-white border border-footer2/40 text-teksgelap p-2 md:px-3 md:py-2 rounded-lg text-sm font-semibold shadow-sm hover:border-header2 hover:text-header2 transition flex items-center justify-center cursor-pointer"
+            title="Upload Excel"
+          >
+            <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-8l-4-4m0 0L8 8m4-4v12"></path>
+            </svg>
+            <span className="hidden md:inline ml-2">Upload</span>
+            <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleUploadExcel}/>
+          </label>
+        </div>
+
+        {/* Kanan: View Mode, Grouping & Search */}
+        <div className="flex flex-wrap gap-2 items-center w-full lg:w-auto justify-end">
+          {/* Grouping Select (Hanya Grid Mode) */}
+          {viewMode === 'grid' && (
+            <select 
+              value={groupMode}
+              onChange={(e) => setGroupMode(e.target.value as 'none' | 'abjad' | 'kategori')}
+              className="text-sm border border-footer2/30 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-header1 shrink-0"
+              title="Pengelompokan"
+            >
+              <option value="none">Tanpa Grup</option>
+              <option value="abjad">Grup Abjad</option>
+              <option value="kategori">Grup Kategori</option>
+            </select>
+          )}
+
+          {/* Grid & Tampilan Tabel (Selalu Tampil, Nempel Search) */}
+          <div className="flex bg-bgutama rounded-lg p-1 border border-footer2/20 shrink-0">
+            <button 
+              onClick={() => setViewMode('grid')}
+              className={`p-1.5 rounded transition ${viewMode === 'grid' ? 'bg-white shadow-sm text-header1' : 'text-footer2 hover:text-header1'}`}
+              title="Grid"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
+              </svg>
+            </button>
+            <button 
+              onClick={() => setViewMode('table')}
+              className={`p-1.5 rounded transition ${viewMode === 'table' ? 'bg-white shadow-sm text-header1' : 'text-footer2 hover:text-header1'}`}
+              title="Tampilan Tabel"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 10h18M3 14h18m-9-4v8m-7 0h14a2 2 0 002-2V8a2 2 0 00-2-2H5a2 2 0 00-2 2v8a2 2 0 002 2z"></path>
+              </svg>
+            </button>
+          </div>
+
+          {/* Search */}
+          <div className="relative w-full sm:w-64 lg:w-72">
+            <input 
+              type="text" 
+              placeholder="Cari produk..."
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+              className="w-full pl-3 pr-8 py-2 rounded-lg border border-footer2/40 bg-white text-sm focus:outline-none focus:border-header1"
+            />
+            {searchQuery && (
+              <button 
+                onClick={clearSearch}
+                className="absolute right-2 top-1/2 -translate-y-1/2 text-footer2 hover:text-aksen transition"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            )}
           </div>
         </div>
-        <button onClick={() => openModal()} className="bg-header1 hover:bg-header2 text-white px-4 py-2 rounded-lg font-bold text-sm shadow-md transition">
-          + Tambah Produk
-        </button>
       </div>
 
-      {/* TABEL DATA */}
-      <div className="flex-1 p-4 overflow-hidden flex flex-col">
-        <div className="bg-white rounded-xl border border-footer2/20 shadow-sm flex-1 overflow-hidden flex flex-col">
-          <div className="overflow-x-auto flex-1">
-            <table className="w-full text-left border-collapse">
-              <thead className="bg-bgutama sticky top-0 z-10 shadow-sm">
-                <tr>
-                  <th className="p-3 text-xs font-black text-footer2 border-b">QR / SKU</th>
-                  <th className="p-3 text-xs font-black text-footer2 border-b">Nama Barang</th>
-                  <th className="p-3 text-xs font-black text-footer2 border-b">Stok (Total)</th>
-                  <th className="p-3 text-xs font-black text-footer2 border-b">Modal Utama</th>
-                  {activeLabels.map(tipe => (
-                    <th key={tipe} className="p-3 text-xs font-black text-header1 border-b">
-                      {pengaturan[`Label_Harga_${tipe}`] || `Harga ${tipe}`}
-                    </th>
-                  ))}
-                  <th className="p-3 text-xs font-black text-footer2 border-b text-center">Aksi</th>
-                </tr>
-              </thead>
-              <tbody>
-                {loading ? (
-                  <tr><td colSpan={15} className="p-8 text-center text-footer2 font-bold animate-pulse">Memuat Katalog...</td></tr>
-                ) : produkList.length === 0 ? (
-                  <tr><td colSpan={15} className="p-8 text-center text-footer2">Belum ada produk terdaftar.</td></tr>
-                ) : (
-                  produkList.map((p, idx) => {
-                    const totalStok = (Number(p.jumlah_1) || 0) + (Number(p.jumlah_2) || 0) + (Number(p.jumlah_3) || 0);
-                    return (
-                      <tr key={idx} className="hover:bg-bgutama/50 border-b border-footer2/10 transition">
-                        <td className="p-3 text-xs font-mono">{p.qr}</td>
-                        <td className="p-3 text-sm font-bold">{p.nama_barang}</td>
-                        <td className="p-3 text-sm font-bold text-header1">{totalStok}</td>
-                        <td className="p-3 text-sm">Rp {p.modal_1?.toLocaleString('id-ID')}</td>
-                        {activeLabels.map(tipe => (
-                          <td key={tipe} className="p-3 text-sm font-bold text-header1">
-                            Rp {p[`jual_${tipe.toLowerCase()}`]?.toLocaleString('id-ID') || 0}
-                          </td>
-                        ))}
-                        <td className="p-3 text-center">
-                          <button onClick={() => openModal(p)} className="bg-header2/10 text-header1 px-3 py-1 rounded text-xs font-bold hover:bg-header2 hover:text-white transition">Edit</button>
-                        </td>
-                      </tr>
-                    );
-                  })
-                )}
-              </tbody>
-            </table>
+      {/* Area Kontainer Produk */}
+      <main className="flex-1 overflow-y-auto px-4 md:px-8 pb-8">
+        {viewMode === 'grid' ? (
+          renderGridProduk()
+        ) : (
+          <div className="bg-white rounded-xl shadow-sm border border-footer2/20 overflow-hidden">
+            <div className="overflow-x-auto">
+              {renderTableProduk()}
+            </div>
           </div>
-        </div>
-      </div>
+        )}
+      </main>
 
       {/* MODAL FORM INPUT */}
       {showModal && (
-        <div className="absolute inset-0 bg-teksgelap/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-          <div className="bg-white w-full max-w-2xl rounded-2xl shadow-2xl overflow-hidden flex flex-col max-h-[90vh]">
-            <div className="bg-header1 p-4 flex justify-between items-center text-white">
-              <h3 className="font-bold">{isEdit ? 'Update Produk' : 'Tambah Produk Baru'}</h3>
-              <button onClick={() => setShowModal(false)} className="text-white hover:text-red-200 font-bold">X</button>
-            </div>
+        <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center">
+          <div className="bg-white w-full md:w-[95%] md:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-3xl md:rounded-2xl shadow-2xl p-6 relative">
+            <div className="w-12 h-1.5 bg-gray-300 rounded-full mx-auto mb-4 md:hidden"></div>
+            <button onClick={() => setShowModal(false)} className="absolute top-4 right-4 text-gray-400 hover:text-aksen transition">
+              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+              </svg>
+            </button>
+            <h3 className="text-xl font-bold text-header1 mb-4">
+              {isEdit ? 'Edit Data Produk' : 'Tambah Produk Baru'}
+            </h3>
             
-            <form onSubmit={handleSimpan} className="p-6 overflow-y-auto flex-1 space-y-4">
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                <div><label className="text-xs font-bold text-footer2 mb-1 block">QR / SKU (Unik)</label><input type="text" name="qr" required disabled={isEdit} value={form.qr || ''} onChange={handleInputChange} className="w-full p-2 border rounded bg-bgutama focus:ring-1 outline-none font-mono" /></div>
-                <div><label className="text-xs font-bold text-footer2 mb-1 block">Kategori</label><input type="text" name="kategori" value={form.kategori || ''} onChange={handleInputChange} className="w-full p-2 border rounded bg-bgutama focus:ring-1 outline-none" /></div>
-                <div className="md:col-span-2"><label className="text-xs font-bold text-footer2 mb-1 block">Nama Barang</label><input type="text" name="nama_barang" required value={form.nama_barang || ''} onChange={handleInputChange} className="w-full p-3 border rounded-lg bg-bgutama focus:ring-2 font-bold outline-none" /></div>
+            <form onSubmit={handleSimpan} className="flex flex-col gap-3">
+              <div className="flex items-end gap-2">
+                <div className="flex-1">
+                  <label className="text-xs font-bold text-footer2">Kode QR / Barcode</label>
+                  <input 
+                    type="text" 
+                    name="qr"
+                    required 
+                    disabled={isEdit}
+                    value={form.qr || ''} 
+                    onChange={handleInputChange}
+                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1 font-semibold uppercase"
+                  />
+                </div>
+                {!isEdit && (
+                  <button 
+                    type="button" 
+                    onClick={() => setForm({ ...form, qr: `BRG-${Date.now().toString().slice(-5)}` })}
+                    className="bg-header2/20 text-header1 hover:bg-header2 hover:text-white px-3 py-2.5 rounded-lg text-sm font-bold transition"
+                  >
+                    Auto
+                  </button>
+                )}
+              </div>
+              
+              <div>
+                <label className="text-xs font-bold text-footer2">Nama Barang</label>
+                <input 
+                  type="text" 
+                  name="nama_barang"
+                  required 
+                  value={form.nama_barang || ''} 
+                  onChange={handleInputChange}
+                  className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                />
+              </div>
+              
+              <div className="grid grid-cols-3 gap-2">
+                <div>
+                  <label className="text-xs font-bold text-footer2">Sektor</label>
+                  <input 
+                    type="text" 
+                    name="kategori"
+                    placeholder="Cth: Minuman"
+                    value={form.kategori || ''} 
+                    onChange={handleInputChange}
+                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-footer2">Status BPOM</label>
+                  <select 
+                    name="status_bpom"
+                    value={form.status_bpom || 'BPOM'} 
+                    onChange={handleInputChange}
+                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                  >
+                    <option value="BPOM">BPOM</option>
+                    <option value="Non BPOM">Non BPOM</option>
+                    <option value="P-IRT">P-IRT</option>
+                    <option value="SP">SP</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="text-xs font-bold text-footer2">Tipe</label>
+                  <select 
+                    name="tipe"
+                    value={form.tipe || 'Offline'} 
+                    onChange={handleInputChange}
+                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                  >
+                    <option value="Offline">Offline</option>
+                    <option value="Online">Online</option>
+                    <option value="Keduanya">Keduanya</option>
+                  </select>
+                </div>
               </div>
 
-              {/* SECTION GUDANG */}
-              <div className="bg-bgutama/50 p-4 rounded-lg border border-footer2/20">
-                <div className="flex justify-between items-center mb-3">
-                  <h4 className="text-xs font-black text-header1">Stok & Modal (Gudang 1 / Utama)</h4>
-                  <button type="button" onClick={() => setShowMultiGudang(!showMultiGudang)} className="text-[10px] bg-header2/10 text-header1 font-bold px-2 py-1 rounded border border-header2/20 hover:bg-header2 hover:text-white transition">
+              {/* Stok & Modal */}
+              <div className="border-t border-footer2/20 pt-3 mt-1">
+                <div className="flex justify-between items-center mb-2">
+                  <label className="text-xs font-bold text-header1">Stok & Modal</label>
+                  <button 
+                    type="button" 
+                    onClick={() => setShowMultiGudang(!showMultiGudang)}
+                    className="text-[10px] bg-header2/10 text-header1 font-bold px-2 py-1 rounded border border-header2/20 hover:bg-header2 hover:text-white transition"
+                  >
                     {showMultiGudang ? '- Tutup Multi-Gudang' : '+ Buka Multi-Gudang'}
                   </button>
                 </div>
                 
-                <div className="grid grid-cols-2 gap-4">
-                  <div><label className="text-xs font-bold text-footer2 mb-1 block">Stok Gudang 1</label><input type="number" name="jumlah_1" value={form.jumlah_1 || ''} onChange={handleInputChange} className="w-full p-2 border rounded outline-none" /></div>
-                  <div><label className="text-xs font-bold text-footer2 mb-1 block">Harga Modal 1 (Rp)</label><input type="number" name="modal_1" value={form.modal_1 || ''} onChange={handleInputChange} className="w-full p-2 border rounded font-bold text-aksen outline-none" /></div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <label className="text-[10px] font-bold text-footer2">Stok Gudang 1</label>
+                    <input 
+                      type="number" 
+                      name="jumlah_1"
+                      value={form.jumlah_1 || 0} 
+                      onChange={handleInputChange}
+                      className="w-full p-2 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-[10px] font-bold text-footer2">Modal 1 (Rp)</label>
+                    <input 
+                      type="number" 
+                      name="modal_1"
+                      value={form.modal_1 || 0} 
+                      onChange={handleInputChange}
+                      className="w-full p-2 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                    />
+                  </div>
                 </div>
 
-                {/* GUDANG 2 & 3 (HANYA MUNCUL JIKA TOGGLE AKTIF) */}
                 {showMultiGudang && (
-                  <div className="mt-4 pt-4 border-t border-footer2/20 space-y-4 animate-[fadeIn_0.2s_ease-in-out]">
-                    <div className="grid grid-cols-2 gap-4">
-                      <div><label className="text-[10px] font-bold text-footer2 mb-1 block">Stok Gudang 2 (Display/Cadangan)</label><input type="number" name="jumlah_2" value={form.jumlah_2 || ''} onChange={handleInputChange} className="w-full p-2 border rounded text-xs outline-none bg-white" /></div>
-                      <div><label className="text-[10px] font-bold text-footer2 mb-1 block">Harga Modal 2 (Rp)</label><input type="number" name="modal_2" value={form.modal_2 || ''} onChange={handleInputChange} className="w-full p-2 border rounded text-xs font-bold text-aksen outline-none bg-white" /></div>
+                  <div className="mt-2 space-y-2">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-footer2">Stok Gudang 2</label>
+                        <input type="number" name="jumlah_2" value={form.jumlah_2 || 0} onChange={handleInputChange} className="w-full p-2 mt-1 rounded-lg border border-footer2/50 bg-white text-sm focus:outline-none focus:border-header1" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-footer2">Modal 2 (Rp)</label>
+                        <input type="number" name="modal_2" value={form.modal_2 || 0} onChange={handleInputChange} className="w-full p-2 mt-1 rounded-lg border border-footer2/50 bg-white text-sm focus:outline-none focus:border-header1" />
+                      </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div><label className="text-[10px] font-bold text-footer2 mb-1 block">Stok Gudang 3 (Lainnya)</label><input type="number" name="jumlah_3" value={form.jumlah_3 || ''} onChange={handleInputChange} className="w-full p-2 border rounded text-xs outline-none bg-white" /></div>
-                      <div><label className="text-[10px] font-bold text-footer2 mb-1 block">Harga Modal 3 (Rp)</label><input type="number" name="modal_3" value={form.modal_3 || ''} onChange={handleInputChange} className="w-full p-2 border rounded text-xs font-bold text-aksen outline-none bg-white" /></div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="text-[10px] font-bold text-footer2">Stok Gudang 3</label>
+                        <input type="number" name="jumlah_3" value={form.jumlah_3 || 0} onChange={handleInputChange} className="w-full p-2 mt-1 rounded-lg border border-footer2/50 bg-white text-sm focus:outline-none focus:border-header1" />
+                      </div>
+                      <div>
+                        <label className="text-[10px] font-bold text-footer2">Modal 3 (Rp)</label>
+                        <input type="number" name="modal_3" value={form.modal_3 || 0} onChange={handleInputChange} className="w-full p-2 mt-1 rounded-lg border border-footer2/50 bg-white text-sm focus:outline-none focus:border-header1" />
+                      </div>
                     </div>
                   </div>
                 )}
               </div>
 
-              {/* HARGA JUAL AKTIF */}
-              {activeLabels.length > 0 && (
-                <div>
-                  <h4 className="text-xs font-black text-header1 mb-3 mt-4 border-b pb-1">Seting Harga Jual Dasar (Hardcode)</h4>
-                  <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
-                    {activeLabels.map(tipe => {
-                      const keyDB = `jual_${tipe.toLowerCase()}`;
-                      const namaLabel = pengaturan[`Label_Harga_${tipe}`] || `Harga ${tipe}`;
-                      return (
-                        <div key={tipe}>
-                          <label className="text-[10px] font-bold text-footer2 uppercase block mb-1">{namaLabel}</label>
-                          <input type="number" name={keyDB} required value={form[keyDB] || ''} onChange={handleInputChange} placeholder="0" className="w-full p-2 border border-footer2/30 rounded text-sm font-bold text-header1 focus:ring-1 outline-none" />
-                        </div>
-                      );
-                    })}
-                  </div>
+              {/* Harga Jual */}
+              <div className="border-t border-footer2/20 pt-3 mt-1">
+                <label className="text-xs font-bold text-header1 block mb-2">Konfigurasi Harga Jual</label>
+                <div className="grid grid-cols-3 gap-2">
+                  {activeLabels.map(tipe => {
+                    const keyDB = `jual_${tipe.toLowerCase()}`;
+                    const namaLabel = pengaturan[`Label_Harga_${tipe}`] || `Harga ${tipe}`;
+                    
+                    return (
+                      <div key={tipe}>
+                        <label className="text-[10px] font-bold text-footer2">{namaLabel}</label>
+                        <input 
+                          type="number" 
+                          name={keyDB}
+                          value={form[keyDB] || 0} 
+                          onChange={handleInputChange}
+                          className="w-full p-2 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                        />
+                      </div>
+                    );
+                  })}
                 </div>
-              )}
+                <p className="text-[10px] text-footer2 mt-1 italic">* Kosongkan jika tidak digunakan</p>
+              </div>
               
-              <div className="pt-4 border-t border-footer2/20 flex justify-end">
-                <button type="submit" className="bg-header1 hover:bg-header2 text-white px-8 py-3 rounded-xl font-bold shadow transition">SIMPAN DATA</button>
+              <div className="mt-4 pb-4 md:pb-0">
+                <button type="submit" className="w-full bg-header1 hover:bg-header2 text-white font-bold py-3 rounded-lg transition shadow">
+                  Simpan Produk
+                </button>
               </div>
             </form>
           </div>

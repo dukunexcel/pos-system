@@ -963,8 +963,8 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     });
   };
 
-  // --- FUNGSI CETAK STRUK KASIR ---
-    const cetakStrukKasir = (idTrx: string, dataTrx: any, cartData: any[]) => {
+// --- FUNGSI CETAK STRUK KASIR ---
+  const cetakStrukKasir = (idTrx: string, dataTrx: any, cartData: any[]) => {
     const lebarKertas = (pengaturan?.Struk_Kertas === '80mm') ? '350px' : '280px';
     const fontSizeStruk = pengaturan?.Struk_FontSize || '12px';
     
@@ -977,7 +977,8 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         @page { margin: 0; }
         body { font-family: 'Courier New', Courier, monospace; width: 100%; max-width: ${lebarKertas}; margin: 0 auto; padding: 10px; color: #000; font-size: ${fontSizeStruk}; }
         .center { text-align: center; } .right { text-align: right; } .bold { font-weight: bold; }
-        table { width: 100%; border-collapse: collapse; }
+        /* Memaksa tabel mengikuti ukuran font dari body */
+        table { width: 100%; border-collapse: collapse; font-size: inherit; }
         td { vertical-align: top; padding: 2px 0; }
         .border-dashed { border-bottom: 1px dashed #000; margin: 8px 0; }
     </style>
@@ -997,41 +998,39 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     htmlContent += `<div class="center bold" style="margin-top: 5px; font-size: 13px;">${judulStruk}</div>`;
     htmlContent += '<div class="border-dashed"></div>';
     
-    // 2. METADATA
-    let adaInfo = false;
-    let htmlInfo = '<table>';
+    // 2. METADATA (Menyesuaikan Pengaturan & Label Kosong)
+    const getLabel = (val: any, defaultLabel: string) => (val === undefined || val === null) ? defaultLabel : val;
     
-    const getLabel = (val: any, defaultLabel: string) => {
-        if (val === undefined || val === null) return defaultLabel;
-        return val; 
+    // Helper: Jika label dikosongkan (""), titik dua (:) tidak akan dicetak
+    const renderRow = (labelSetting: any, defaultLabel: string, value: string) => {
+        let lbl = getLabel(labelSetting, defaultLabel);
+        let separator = lbl.trim() !== '' ? ': ' : '';
+        return `<tr><td style="width: 35%;">${lbl}</td><td>${separator}${value}</td></tr>`;
     };
+
+    let htmlInfo = '';
     
     if (pengaturan.Struk_ShowID === 'true' || pengaturan.Struk_ShowID === true) {
-        let lblID = getLabel(pengaturan.Struk_Label_ID, 'No. TRX:');
-        htmlInfo += `<tr><td style="width: 35%;">${lblID}</td><td>: ${idTrx}</td></tr>`;
-        adaInfo = true;
+        htmlInfo += renderRow(pengaturan.Struk_Label_ID, 'No. TRX', idTrx);
     }
     
     if (pengaturan.Struk_ShowWaktu === 'true' || pengaturan.Struk_ShowWaktu === true) {
-        let lblWaktu = getLabel(pengaturan.Struk_Label_Waktu, 'Waktu:');
-        htmlInfo += `<tr><td>${lblWaktu}</td><td>: ${new Date().toLocaleString('id-ID')}</td></tr>`;
-        adaInfo = true;
+        // Opsi format waktu kasir (bisa disesuaikan dengan formatWaktu jika tersedia di global)
+        const waktuSekarang = new Date().toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        htmlInfo += renderRow(pengaturan.Struk_Label_Waktu, 'Waktu', waktuSekarang);
     }
     
     if (pengaturan.Struk_ShowKasir === 'true' || pengaturan.Struk_ShowKasir === true) {
-        let lblKasir = getLabel(pengaturan.Struk_Label_Kasir, 'Kasir:');
-        htmlInfo += `<tr><td>${lblKasir}</td><td>: ${dataTrx.namaKasir?.substring(0, 15) || '-'}</td></tr>`;
-        adaInfo = true;
+        htmlInfo += renderRow(pengaturan.Struk_Label_Kasir, 'Kasir', dataTrx.namaKasir?.substring(0, 15) || '-');
     }
     
     if (pengaturan.Struk_ShowPlg === 'true' || pengaturan.Struk_ShowPlg === true) {
-        let lblPlg = getLabel(pengaturan.Struk_Label_Plg, 'Pelanggan:');
-        htmlInfo += `<tr><td>${lblPlg}</td><td>: ${dataTrx.namaPelanggan?.substring(0, 15) || '-'}</td></tr>`;
-        adaInfo = true;
+        htmlInfo += renderRow(pengaturan.Struk_Label_Plg, 'Pelanggan', dataTrx.namaPelanggan?.substring(0, 15) || '-');
     }
     
-    htmlInfo += '</table>';
-    if (adaInfo) htmlContent += htmlInfo + '<div class="border-dashed"></div>';
+    if (htmlInfo !== '') {
+        htmlContent += `<table>${htmlInfo}</table><div class="border-dashed"></div>`;
+    }
 
     // 3. ITEM BARANG
     htmlContent += '<table>';
@@ -1109,7 +1108,7 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     
     printWindow.document.write(htmlContent); printWindow.document.close(); printWindow.focus();
     setTimeout(() => { printWindow.print(); }, 600);
-    };
+  };
 
   // ============ RENDER ============
   return (

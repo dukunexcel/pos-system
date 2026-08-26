@@ -1,6 +1,15 @@
 "use client";
 import { useState, useEffect } from 'react';
+import ExcelJS from 'exceljs';
 import Swal from 'sweetalert2';
+
+// file-saver is untyped in this project, so avoid module augmentation for the default import.
+const saveAs = require('file-saver') as (
+  data: any,
+  filename?: string,
+  noAutoBom?: boolean,
+) => void;
+declare const XLSX: any;
 const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
 
 
@@ -80,20 +89,148 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
   };
 
 
-  // === Fungsi Download & Upload Excel ===
+// === Fungsi Download Template (Client-Side dengan Proteksi) ===
   const handleDownloadTemplate = async () => {
     try {
-      const res = await fetch('/api/karyawan/template');
-      const d = await res.json();
-      if (d.url) window.open(d.url, '_blank');
-    } catch {
-      Swal.fire('Error', 'Gagal mendapatkan template', 'error');
+      const workbook = new ExcelJS.Workbook();
+      const worksheet = workbook.addWorksheet('DataKaryawan');
+
+      // 1. Tentukan Struktur Kolom (Baris 1)
+      worksheet.columns = [
+        { header: 'id_karyawan', key: 'id', width: 15 },
+        { header: 'nama_karyawan', key: 'nama', width: 25 },
+        { header: 'alias', key: 'alias', width: 15 },
+        { header: 'peran', key: 'peran', width: 15 },
+        { header: 'pin_akses', key: 'pin', width: 15 },
+        { header: 'status_aktif', key: 'status', width: 15 }
+      ];
+
+      // 2. Beri Styling pada Header agar Elegan
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      // Menggunakan warna Cyan untuk header
+      headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00ACC1' } };
+      
+      // 3. Kunci Seluruh Sheet dengan Password (misal: "rahasia")
+      await worksheet.protect('rahasia', {
+        selectLockedCells: true,
+        selectUnlockedCells: true,
+      });
+
+      // 4. Buka Kunci (Unlock) untuk Baris 2 hingga 1000 agar bisa diisi data
+      for (let i = 2; i <= 1000; i++) {
+        worksheet.getRow(i).protection = { locked: false };
+      }
+
+      // 5. Tambahkan Contoh Data di Baris 2
+      const row2 = worksheet.addRow({
+        id: 'KSR-01',
+        nama: 'Ahmad Yahya',
+        alias: 'Yahya',
+        peran: 'Kasir',
+        pin: '123456',
+        status: 'Aktif'
+      });
+      // Buka kunci baris contoh ini agar bisa dihapus/diedit pengguna
+      row2.protection = { locked: false }; 
+
+      // 6. Proses Download
+      const buffer = await workbook.xlsx.writeBuffer();
+      saveAs(new Blob([buffer]), 'Template_Karyawan.xlsx');
+      
+    } catch (err) {
+      Swal.fire('Error', 'Gagal membuat template Excel', 'error');
     }
   };
 
-  const handleUploadExcel = (e: any) => {
-    // Tetap sesuai struktur asli — silakan isi logikanya sesuai kebutuhan
-    console.log('Upload Excel dipilih', e.target.files);
+// === Fungsi Upload & Eksekusi Data (Menggunakan ExcelJS) ===
+  const handleUploadExcel = async (e: any) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Reset input agar bisa upload file yang sama berulang kali
+    e.target.value = null; 
+
+    const reader = new FileReader();
+    reader.onload = async (event: any) => {
+      try {
+        const buffer = event.target.result;
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(buffer);
+        
+        // Ambil sheet pertama
+        const worksheet = workbook.worksheets[0];
+        if (!worksheet) {
+            Swal.fire('Error', 'Tidak ada data di dalam file Excel', 'error');
+            return;
+        }
+
+        const jsonData: any[] = [];
+        const headers: string[] = [];
+
+        // Ambil nama kolom (Header) dari Baris 1
+        worksheet.getRow(1).eachCell((cell, colNumber) => {
+          headers[colNumber] = cell.text || cell.value?.toString() || '';
+        });
+
+        // Iterasi Baris 2 ke bawah untuk mengambil data
+        worksheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return; // Lewati baris judul
+          
+          let rowData: any = {};
+          let isRowEmpty = true;
+
+          row.eachCell((cell, colNumber) => {
+            const header = headers[colNumber];
+            if (header) {
+              const cellValue = cell.text || cell.value?.toString() || '';
+              rowData[header] = cellValue;
+              if (cellValue.trim() !== '') isRowEmpty = false;
+            }
+          });
+
+          // Hanya masukkan baris yang benar-benar ada isinya
+          if (!isRowEmpty) {
+            jsonData.push(rowData);
+          }
+        });
+
+        if (jsonData.length === 0) {
+          Swal.fire('Kosong', 'Tidak ada data karyawan yang ditemukan di baris ke-2 dan seterusnya.', 'warning');
+          return;
+        }
+
+        // Validasi kolom wajib (NOT NULL) sesuai struktur database Anda
+        const missingMandatory = jsonData.some(row => !row.id_karyawan || !row.nama_karyawan);
+        if (missingMandatory) {
+          Swal.fire('Error', 'Kolom id_karyawan dan nama_karyawan wajib diisi di semua baris!', 'error');
+          return;
+        }
+
+        Swal.fire({ title: 'Memproses...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+
+        // Kirim ke API Endpoint
+        const res = await fetch('/api/karyawan/bulk', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ data: jsonData })
+        });
+
+        const result = await res.json();
+        if (result.status === 'sukses') {
+          Swal.fire('Berhasil', `${jsonData.length} data karyawan ditambahkan!`, 'success');
+          // loadData(); // Panggil fungsi refresh state Anda di sini
+        } else {
+          throw new Error(result.pesan || 'Gagal menyimpan ke database');
+        }
+
+      } catch (err: any) {
+        Swal.fire('Error', err.message || 'Gagal membaca format file', 'error');
+      }
+    };
+    
+    // Gunakan readAsArrayBuffer karena ExcelJS membacanya sebagai buffer
+    reader.readAsArrayBuffer(file);
   };
 
   // === Fungsi Hapus ===
@@ -162,7 +299,6 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
         </button>
       </header>
 
-
       {/* Action Bar (Excel) */}
       <div className="px-4 md:px-8 py-4 flex flex-wrap gap-3">
         <button onClick={handleDownloadTemplate} className="bg-white border border-footer2/40 text-teksgelap p-2 md:px-4 md:py-2 rounded-lg text-sm font-semibold shadow-sm hover:border-header2 hover:text-header2 transition flex items-center gap-2">
@@ -176,7 +312,6 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
           <input type="file" className="hidden" accept=".xlsx, .xls" onChange={handleUploadExcel} />
         </label>
       </div>
-
 
       {/* Grid Karyawan — Sesuai Tampilan Lampiran 1 */}
       <main className="flex-1 overflow-y-auto px-4 md:px-8 pb-8">
