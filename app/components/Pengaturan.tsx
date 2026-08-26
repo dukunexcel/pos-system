@@ -11,6 +11,36 @@ const Toast = Swal.mixin({
   timerProgressBar: true,
 });
 
+// Data Sandi Default
+const DEFAULT_SANDI: Record<string, string> = {
+  Sandi_A: 'Mutasi',
+  Sandi_B: 'Retur',
+  Sandi_C: '',
+  Sandi_D: 'Pemasukan Toko',
+  Sandi_E: 'Belanja Barang',
+  Sandi_F: 'HPP',
+  Sandi_G: 'Hasil Ndalem',
+  Sandi_H: 'Biaya Kost',
+  Sandi_I: 'Syahriyyah',
+  Sandi_J: 'Thoharoh',
+  Sandi_K: 'Transport dan Paket',
+  Sandi_L: 'Biaya Listrik',
+  Sandi_M: 'Biaya Kuota, pulsa & wifi',
+  Sandi_N: 'Iuran Musyawaroh',
+  Sandi_O: 'Biaya Perawatan Mobil',
+  Sandi_P: "Biaya Ro'an",
+  Sandi_Q: 'Keperluan Ndalem',
+  Sandi_R: 'Shodaqoh Harian',
+  Sandi_S: 'Transaksi Bank',
+  Sandi_T: 'Biaya Air Minum',
+  Sandi_U: '',
+  Sandi_V: 'Operasional lain-lain',
+  Sandi_W: 'Hutang - Piutang',
+  Sandi_X: 'Pemasukan Lain (non-penjualan)',
+  Sandi_Y: '',
+  Sandi_Z: 'Pemberian Laba Bersih'
+};
+
 export default function Pengaturan({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState('toko'); 
   const [loading, setLoading] = useState(true);
@@ -25,13 +55,27 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
   const [isDompetEdit, setIsDompetEdit] = useState(false);
 
   const listHarga = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+  const listSandi = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
   useEffect(() => {
     const fetchInitialData = async () => {
       try {
         const resPengaturan = await fetch('/api/pengaturan');
         const dataPengaturan = await resPengaturan.json();
-        if (dataPengaturan.status === 'sukses') setFormData(dataPengaturan.data || {});
+        if (dataPengaturan.status === 'sukses') {
+          const data = dataPengaturan.data || {};
+          
+          // Merge dengan default sandi jika belum ada
+          const mergedData = { ...data };
+          listSandi.forEach(char => {
+            const key = `Sandi_${char}`;
+            if (!mergedData[key] && DEFAULT_SANDI[key]) {
+              mergedData[key] = DEFAULT_SANDI[key];
+            }
+          });
+          
+          setFormData(mergedData);
+        }
 
         const resTema = await fetch('/api/tema');
         const dataTema = await resTema.json();
@@ -166,6 +210,7 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
           <button onClick={() => setActiveTab('toko')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'toko' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>🏠 Identitas & Harga</button>
           <button onClick={() => setActiveTab('tema')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'tema' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>🎨 Tema & Warna</button>
           <button onClick={() => setActiveTab('struk')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'struk' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>🧾 Desain Struk</button>
+          <button onClick={() => setActiveTab('sandi')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'sandi' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>📊 Sandi Transaksi</button>
           <button onClick={() => setActiveTab('dompet')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'dompet' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>💳 Rekening & Kas</button>
         </nav>
       </aside>
@@ -336,7 +381,64 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {/* TAB 4: REKENING & KAS (BARU) */}
+        {/* TAB 4: SANDI TRANSAKSI (BARU) */}
+        {activeTab === 'sandi' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center border-b border-footer2/20 pb-2">
+              <div>
+                <h3 className="text-lg font-black text-header1">Sandi Transaksi</h3>
+                <p className="text-xs text-footer2 mt-1">Kelompokkan transaksi keuangan berdasarkan sandi A-Z untuk pencatatan yang rapi.</p>
+              </div>
+            </div>
+
+            <div className="bg-white p-4 rounded-xl border border-footer2/30 shadow-sm">
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                {listSandi.map(char => {
+                  const key = `Sandi_${char}`;
+                  const value = formData[key] || '';
+                  
+                  return (
+                    <div key={char} className={`flex items-center gap-3 p-2.5 rounded-lg border transition ${value.trim() ? 'bg-bgutama/50 border-header2/30' : 'bg-white border-footer2/20'}`}>
+                      <span className={`w-8 h-8 flex items-center justify-center rounded-lg font-black text-sm shrink-0 ${value.trim() ? 'bg-header1 text-white' : 'bg-bgutama text-footer2 border border-footer2/30'}`}>
+                        {char}
+                      </span>
+                      <input 
+                        type="text" 
+                        name={key}
+                        value={value}
+                        onChange={handleChange}
+                        placeholder={`Sandi ${char} (kosongkan jika tidak digunakan)`}
+                        className="flex-1 p-2 border border-footer2/30 rounded text-sm font-bold bg-white focus:outline-none focus:border-header1"
+                      />
+                      {value.trim() && (
+                        <span className="text-[10px] font-bold text-header2 bg-header2/10 px-2 py-1 rounded shrink-0">Aktif</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            <div className="bg-header2/10 p-4 rounded-xl border border-header2/20 flex items-start gap-3">
+              <svg className="w-5 h-5 text-header1 shrink-0 mt-0.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+              </svg>
+              <p className="text-xs text-teksgelap leading-relaxed">
+                <b className="text-header1">Tips Penggunaan Sandi:</b><br/>
+                - Sandi <b>A</b> digunakan untuk Mutasi antar dompet<br/>
+                - Sandi <b>B</b> untuk Retur barang<br/>
+                - Sandi <b>D</b> untuk Pemasukan dari penjualan toko<br/>
+                - Sandi <b>F</b> untuk HPP (Harga Pokok Penjualan)<br/>
+                - Sandi <b>X</b> untuk pemasukan di luar penjualan<br/>
+                - Sandi <b>Z</b> untuk pembagian laba bersih<br/>
+                <br/>
+                Biarkan kosong untuk sandi yang belum digunakan. Anda dapat mengaturnya kapan saja.
+              </p>
+            </div>
+          </div>
+        )}
+
+        {/* TAB 5: REKENING & KAS (BARU) */}
         {activeTab === 'dompet' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center border-b border-footer2/20 pb-2">
@@ -372,7 +474,7 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {/* FOOTER TOMBOL SIMPAN (Hanya muncul jika bukan tab Dompet, karena dompet otomatis menyimpan datanya sendiri) */}
+        {/* FOOTER TOMBOL SIMPAN */}
         {activeTab !== 'dompet' && (
           <div className="sticky bottom-0 bg-white/90 backdrop-blur border-t border-footer2/30 p-4 -mx-4 -mb-4 mt-6 flex justify-end">
             <button onClick={handleSimpan} className="bg-header1 hover:bg-header2 text-white font-black px-8 py-3 rounded-xl shadow-lg transition">SIMPAN PERUBAHAN</button>
