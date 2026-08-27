@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import ExcelJS from 'exceljs';
 import Swal from 'sweetalert2';
 
@@ -34,6 +34,14 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
   const [visibleCount, setVisibleCount] = useState(30);
   const [totalCount, setTotalCount] = useState(0);
   const [isLoadingMore, setIsLoadingMore] = useState(false);
+  const [progressiveLoading, setProgressiveLoading] = useState(false);
+  const [loadedCount, setLoadedCount] = useState(0);
+  
+  // Refs untuk progressive loading
+  const currentBatchRef = useRef(0);
+  const totalBatchesRef = useRef(0);
+  const isSearchingRef = useRef(false);
+  const batchSize = 100; // Load 100 data per batch
   
   const [showModal, setShowModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -51,22 +59,33 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
   });
 
   useEffect(() => {
-    fetchData();
+    fetchInitialData();
   }, []);
 
-  const fetchData = async () => {
+  // Fetch initial data + total count
+  const fetchInitialData = async () => {
     setLoading(true);
     try {
-      const res = await fetch('/api/pelanggan');
+      // Ambil batch pertama + total count
+      const res = await fetch(`/api/pelanggan?page=1&limit=${batchSize}`);
       const data = await res.json();
+      
       if (data.status === 'sukses') {
         setPelangganList(data.data);
         setFilteredList(data.data);
-        setTotalCount(data.data.length);
+        setTotalCount(data.total);
+        setLoadedCount(data.data.length);
+        currentBatchRef.current = 1;
+        totalBatchesRef.current = Math.ceil(data.total / batchSize);
         
         // Ekstrak tipe unik untuk autocomplete (datalist)
         const types = Array.from(new Set(data.data.map((p: PelangganData) => p.tipe).filter(Boolean)));
         setUnikTipe(types as string[]);
+        
+        // Jika masih ada data, mulai progressive loading di background
+        if (data.data.length < data.total) {
+          startProgressiveLoading();
+        }
       }
     } catch (err) {
       Toast.fire({ icon: 'error', title: 'Gagal memuat data pelanggan' });
@@ -75,7 +94,59 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
     }
   };
 
-  // Filter data berdasarkan pencarian
+  // Progressive loading di background
+  const startProgressiveLoading = async () => {
+    setProgressiveLoading(true);
+    
+    for (let page = 2; page <= totalBatchesRef.current; page++) {
+      // Jeda jika user sedang search agar tidak mengganggu performa
+      if (isSearchingRef.current) {
+        await new Promise(resolve => setTimeout(resolve, 1000));
+        page--; // Retry batch ini nanti
+        continue;
+      }
+      
+      try {
+        const res = await fetch(`/api/pelanggan?page=${page}&limit=${batchSize}`);
+        const data = await res.json();
+        
+        if (data.status === 'sukses') {
+          setPelangganList(prev => {
+            // Hindari duplikasi data
+            const existingIds = new Set(prev.map(p => p.id_pelanggan));
+            const newData = data.data.filter((p: PelangganData) => !existingIds.has(p.id_pelanggan));
+            
+            // Update tipe unik juga
+            if (newData.length > 0) {
+              setUnikTipe(prevTypes => {
+                const newTypes = newData
+                  .map((p: PelangganData) => p.tipe)
+                  .filter(Boolean);
+                return Array.from(new Set([...prevTypes, ...newTypes]));
+              });
+            }
+            
+            return [...prev, ...newData];
+          });
+          
+          setLoadedCount(prev => prev + data.data.length);
+          currentBatchRef.current = page;
+          
+          // Beri jeda kecil agar tidak membebani network
+          await new Promise(resolve => setTimeout(resolve, 200));
+        }
+      } catch (err) {
+        console.error(`Error loading batch ${page}:`, err);
+        // Retry sekali jika gagal
+        page--;
+        await new Promise(resolve => setTimeout(resolve, 2000));
+      }
+    }
+    
+    setProgressiveLoading(false);
+  };
+
+  // Filter data berdasarkan pencarian (client-side, instant)
   useEffect(() => {
     if (searchQuery.trim() === '') {
       setFilteredList(pelangganList);
@@ -96,280 +167,273 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
   }, [searchQuery, pelangganList]);
 
   // === Fungsi Download Template (Client-Side dengan Proteksi) ===
-const handleDownloadTemplate = async () => {
-  try {
-    const workbook = new ExcelJS.Workbook();
-    const worksheet = workbook.addWorksheet('DataPelanggan');
-
-    // 1. Tentukan Struktur Kolom (Baris 1)
-    worksheet.columns = [
-      { header: 'id_pelanggan', key: 'id', width: 15 },
-      { header: 'tipe', key: 'tipe', width: 12 },
-      { header: 'nama', key: 'nama', width: 25 },
-      { header: 'wa', key: 'wa', width: 15 },
-      { header: 'alamat', key: 'alamat', width: 35 },
-      { header: 'saldo', key: 'saldo', width: 15 },
-      { header: 'piutang', key: 'piutang', width: 15 },
-      { header: 'poin_pembelian', key: 'poin', width: 15 },
-      { header: 'nominal_pembelian', key: 'nominal', width: 18 },
-      { header: 'foto', key: 'foto', width: 30 }
-    ];
-
-    // 2. Beri Styling pada Header agar Elegan
-    const headerRow = worksheet.getRow(1);
-    headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-    // Menggunakan warna yang sama dengan modul lain untuk konsistensi
-    headerRow.fill = { 
-      type: 'pattern', 
-      pattern: 'solid', 
-      fgColor: { argb: 'FF00ACC1' } 
-    };
-    headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
-    headerRow.height = 30;
-
-    // 3. Kunci Seluruh Sheet dengan Password
-    await worksheet.protect('rahasia', {
-      selectLockedCells: true,
-      selectUnlockedCells: true,
-    });
-
-    // 4. Buka Kunci (Unlock) untuk Baris 2 hingga 1000 agar bisa diisi data
-    for (let i = 2; i <= 1000; i++) {
-      const row = worksheet.getRow(i);
-      row.protection = { locked: false };
-      
-      // Validasi untuk kolom tipe
-      row.getCell('tipe').dataValidation = {
-        type: 'list',
-        allowBlank: true,
-        formulae: ['"Personal,Toko,Reseller,Distributor"'],
-        showErrorMessage: true,
-        errorTitle: 'Input tidak valid',
-        error: 'Pilih tipe pelanggan yang sesuai'
-      };
-      
-      // Format angka untuk kolom numerik
-      const numericColumns = ['saldo', 'piutang', 'poin', 'nominal'];
-      
-      numericColumns.forEach(key => {
-        const cell = row.getCell(key);
-        cell.numFmt = '#,##0';
-        cell.alignment = { horizontal: 'right' };
-      });
-      
-      // Format khusus untuk saldo dan piutang (dengan 2 desimal)
-      row.getCell('saldo').numFmt = '#,##0.00';
-      row.getCell('piutang').numFmt = '#,##0.00';
-    }
-
-    // 5. Tambahkan Contoh Data di Baris 2
-    const row2 = worksheet.addRow({
-      id: 'PLG-001',
-      tipe: 'Personal',
-      nama: 'Budi Santoso',
-      wa: '081234567890',
-      alamat: 'Jl. Melati No. 5, Jakarta Selatan',
-      saldo: 50000,
-      piutang: 0,
-      poin: 25,
-      nominal: 500000,
-      foto: 'https://drive.google.com/thumbnail?id=xxxxx&sz=w500'
-    });
-    // Buka kunci baris contoh ini agar bisa dihapus/diedit pengguna
-    row2.protection = { locked: false };
-    row2.font = { color: { argb: 'FF666666' }, italic: true };
-    // ExcelJS uses `note` for cell comments/notes in types
-    // https://github.com/exceljs/exceljs#notes
-    // Assign plain string notes for the example cells
-    // (TypeScript typings expose `note` on the Cell)
-    // Cell indexes are 1-based
-    row2.getCell(1).note = 'Contoh data - silakan hapus';
-    row2.getCell(10).note = 'Isi dengan URL foto atau link Google Drive';
-
-    // 6. Proses Download
-    const buffer = await workbook.xlsx.writeBuffer();
-    saveAs(new Blob([buffer]), 'Template_Pelanggan.xlsx');
-    
-    Toast.fire({ 
-      icon: 'success', 
-      title: 'Template pelanggan berhasil didownload!' 
-    });
-    
-  } catch (err) {
-    console.error('Download error:', err);
-    Swal.fire('Error', 'Gagal membuat template Excel', 'error');
-  }
-};
-
-// === Fungsi Upload & Eksekusi Data (Menggunakan ExcelJS) ===
-const handleUploadExcel = async (e: any) => {
-  const file = e.target.files[0];
-  if (!file) return;
-
-  // Reset input agar bisa upload file yang sama berulang kali
-  e.target.value = null;
-
-  const reader = new FileReader();
-  reader.onload = async (event: any) => {
+  const handleDownloadTemplate = async () => {
     try {
-      const buffer = event.target.result;
       const workbook = new ExcelJS.Workbook();
-      await workbook.xlsx.load(buffer);
-      
-      // Ambil sheet pertama
-      const worksheet = workbook.worksheets[0];
-      if (!worksheet) {
-        Swal.fire('Error', 'Tidak ada data di dalam file Excel', 'error');
-        return;
+      const worksheet = workbook.addWorksheet('DataPelanggan');
+
+      // 1. Tentukan Struktur Kolom (Baris 1)
+      worksheet.columns = [
+        { header: 'id_pelanggan', key: 'id', width: 15 },
+        { header: 'tipe', key: 'tipe', width: 12 },
+        { header: 'nama', key: 'nama', width: 25 },
+        { header: 'wa', key: 'wa', width: 15 },
+        { header: 'alamat', key: 'alamat', width: 35 },
+        { header: 'saldo', key: 'saldo', width: 15 },
+        { header: 'piutang', key: 'piutang', width: 15 },
+        { header: 'poin_pembelian', key: 'poin', width: 15 },
+        { header: 'nominal_pembelian', key: 'nominal', width: 18 },
+        { header: 'foto', key: 'foto', width: 30 }
+      ];
+
+      // 2. Beri Styling pada Header agar Elegan
+      const headerRow = worksheet.getRow(1);
+      headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
+      headerRow.fill = { 
+        type: 'pattern', 
+        pattern: 'solid', 
+        fgColor: { argb: 'FF00ACC1' } 
+      };
+      headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
+      headerRow.height = 30;
+
+      // 3. Kunci Seluruh Sheet dengan Password
+      await worksheet.protect('rahasia', {
+        selectLockedCells: true,
+        selectUnlockedCells: true,
+      });
+
+      // 4. Buka Kunci (Unlock) untuk Baris 2 hingga 1000 agar bisa diisi data
+      for (let i = 2; i <= 1000; i++) {
+        const row = worksheet.getRow(i);
+        row.protection = { locked: false };
+        
+        // Validasi untuk kolom tipe
+        row.getCell('tipe').dataValidation = {
+          type: 'list',
+          allowBlank: true,
+          formulae: ['"Personal,Toko,Reseller,Distributor"'],
+          showErrorMessage: true,
+          errorTitle: 'Input tidak valid',
+          error: 'Pilih tipe pelanggan yang sesuai'
+        };
+        
+        // Format angka untuk kolom numerik
+        const numericColumns = ['saldo', 'piutang', 'poin', 'nominal'];
+        
+        numericColumns.forEach(key => {
+          const cell = row.getCell(key);
+          cell.numFmt = '#,##0';
+          cell.alignment = { horizontal: 'right' };
+        });
+        
+        // Format khusus untuk saldo dan piutang (dengan 2 desimal)
+        row.getCell('saldo').numFmt = '#,##0.00';
+        row.getCell('piutang').numFmt = '#,##0.00';
       }
 
-      const jsonData: any[] = [];
-      const headers: string[] = [];
-
-      // Ambil nama kolom (Header) dari Baris 1
-      worksheet.getRow(1).eachCell((cell, colNumber) => {
-        headers[colNumber] = cell.text || cell.value?.toString() || '';
+      // 5. Tambahkan Contoh Data di Baris 2
+      const row2 = worksheet.addRow({
+        id: 'PLG-001',
+        tipe: 'Personal',
+        nama: 'Budi Santoso',
+        wa: '081234567890',
+        alamat: 'Jl. Melati No. 5, Jakarta Selatan',
+        saldo: 50000,
+        piutang: 0,
+        poin: 25,
+        nominal: 500000,
+        foto: 'https://drive.google.com/thumbnail?id=xxxxx&sz=w500'
       });
+      row2.protection = { locked: false };
+      row2.font = { color: { argb: 'FF666666' }, italic: true };
+      row2.getCell(1).note = 'Contoh data - silakan hapus';
+      row2.getCell(10).note = 'Isi dengan URL foto atau link Google Drive';
 
-      // Iterasi Baris 2 ke bawah untuk mengambil data
-      worksheet.eachRow((row, rowNumber) => {
-        if (rowNumber === 1) return; // Lewati baris judul
+      // 6. Proses Download
+      const buffer = await workbook.xlsx.writeBuffer();
+      saveAs(new Blob([buffer]), 'Template_Pelanggan.xlsx');
+      
+      Toast.fire({ 
+        icon: 'success', 
+        title: 'Template pelanggan berhasil didownload!' 
+      });
+      
+    } catch (err) {
+      console.error('Download error:', err);
+      Swal.fire('Error', 'Gagal membuat template Excel', 'error');
+    }
+  };
+
+  // === Fungsi Upload & Eksekusi Data (Menggunakan ExcelJS) ===
+  const handleUploadExcel = async (e: any) => {
+    const file = e.target.files[0];
+    if (!file) return;
+
+    // Reset input agar bisa upload file yang sama berulang kali
+    e.target.value = null;
+
+    const reader = new FileReader();
+    reader.onload = async (event: any) => {
+      try {
+        const buffer = event.target.result;
+        const workbook = new ExcelJS.Workbook();
+        await workbook.xlsx.load(buffer);
         
-        let rowData: any = {};
-        let isRowEmpty = true;
+        // Ambil sheet pertama
+        const worksheet = workbook.worksheets[0];
+        if (!worksheet) {
+          Swal.fire('Error', 'Tidak ada data di dalam file Excel', 'error');
+          return;
+        }
 
-        row.eachCell((cell, colNumber) => {
-          const header = headers[colNumber];
-          if (header) {
-            // Untuk kolom numerik, ambil value asli (bukan text)
-            const numericColumns = ['saldo', 'piutang', 'poin_pembelian', 'nominal_pembelian'];
-            
-            let cellValue;
-            if (numericColumns.includes(header) && cell.value !== null && cell.value !== undefined) {
-              // Jika nilai numerik, konversi ke number
-              cellValue = Number(cell.value) || 0;
-            } else {
-              cellValue = cell.text || cell.value?.toString() || '';
+        const jsonData: any[] = [];
+        const headers: string[] = [];
+
+        // Ambil nama kolom (Header) dari Baris 1
+        worksheet.getRow(1).eachCell((cell, colNumber) => {
+          headers[colNumber] = cell.text || cell.value?.toString() || '';
+        });
+
+        // Iterasi Baris 2 ke bawah untuk mengambil data
+        worksheet.eachRow((row, rowNumber) => {
+          if (rowNumber === 1) return; // Lewati baris judul
+          
+          let rowData: any = {};
+          let isRowEmpty = true;
+
+          row.eachCell((cell, colNumber) => {
+            const header = headers[colNumber];
+            if (header) {
+              // Untuk kolom numerik, ambil value asli (bukan text)
+              const numericColumns = ['saldo', 'piutang', 'poin_pembelian', 'nominal_pembelian'];
+              
+              let cellValue;
+              if (numericColumns.includes(header) && cell.value !== null && cell.value !== undefined) {
+                // Jika nilai numerik, konversi ke number
+                cellValue = Number(cell.value) || 0;
+              } else {
+                cellValue = cell.text || cell.value?.toString() || '';
+              }
+              
+              rowData[header] = cellValue;
+              if (cellValue !== '' && cellValue !== 0) isRowEmpty = false;
             }
-            
-            rowData[header] = cellValue;
-            if (cellValue !== '' && cellValue !== 0) isRowEmpty = false;
+          });
+
+          // Hanya masukkan baris yang benar-benar ada isinya
+          if (!isRowEmpty) {
+            jsonData.push(rowData);
           }
         });
 
-        // Hanya masukkan baris yang benar-benar ada isinya
-        if (!isRowEmpty) {
-          jsonData.push(rowData);
-        }
-      });
-
-      if (jsonData.length === 0) {
-        Swal.fire('Kosong', 'Tidak ada data pelanggan yang ditemukan di baris ke-2 dan seterusnya.', 'warning');
-        return;
-      }
-
-      // Validasi kolom wajib (NOT NULL) sesuai struktur database
-      const missingMandatory = jsonData.some(row => !row.id_pelanggan || !row.nama);
-      if (missingMandatory) {
-        Swal.fire('Error', 'Kolom id_pelanggan dan nama wajib diisi di semua baris!', 'error');
-        return;
-      }
-
-      // Validasi format nomor WA
-      const invalidPhone = jsonData.some(row => {
-        if (row.wa && row.wa.trim() !== '') {
-          // Hanya terima angka, minimal 10 digit, maksimal 15 digit
-          const phoneRegex = /^[0-9]{10,15}$/;
-          return !phoneRegex.test(row.wa.trim());
-        }
-        return false;
-      });
-      
-      if (invalidPhone) {
-        const confirmResult = await Swal.fire({
-          icon: 'warning',
-          title: 'Format Nomor WA Tidak Valid',
-          text: 'Beberapa nomor WA tidak sesuai format. Pastikan hanya berisi angka 10-15 digit tanpa spasi atau karakter khusus.',
-          showCancelButton: true,
-          confirmButtonText: 'Lanjutkan Tetap Upload',
-          cancelButtonText: 'Batalkan',
-          confirmButtonColor: 'var(--color-aksen)',
-          cancelButtonColor: 'var(--color-footer2)'
-        });
-        
-        if (!confirmResult.isConfirmed) {
+        if (jsonData.length === 0) {
+          Swal.fire('Kosong', 'Tidak ada data pelanggan yang ditemukan di baris ke-2 dan seterusnya.', 'warning');
           return;
         }
-      }
 
-      // Validasi format numerik
-      const numericColumns = ['saldo', 'piutang', 'poin_pembelian', 'nominal_pembelian'];
-      
-      const invalidNumeric = jsonData.some(row => {
-        return numericColumns.some(col => {
-          if (row[col] !== undefined && row[col] !== '' && row[col] !== 0) {
-            return isNaN(Number(row[col]));
+        // Validasi kolom wajib (NOT NULL) sesuai struktur database
+        const missingMandatory = jsonData.some(row => !row.id_pelanggan || !row.nama);
+        if (missingMandatory) {
+          Swal.fire('Error', 'Kolom id_pelanggan dan nama wajib diisi di semua baris!', 'error');
+          return;
+        }
+
+        // Validasi format nomor WA
+        const invalidPhone = jsonData.some(row => {
+          if (row.wa && row.wa.trim() !== '') {
+            // Hanya terima angka, minimal 10 digit, maksimal 15 digit
+            const phoneRegex = /^[0-9]{10,15}$/;
+            return !phoneRegex.test(row.wa.trim());
           }
           return false;
         });
-      });
-      
-      if (invalidNumeric) {
-        const confirmResult = await Swal.fire({
-          icon: 'warning',
-          title: 'Format Angka Tidak Valid',
-          text: 'Beberapa kolom saldo/piutang/poin/nominal berisi karakter non-angka. Pastikan hanya berisi angka.',
-          showCancelButton: true,
-          confirmButtonText: 'Lanjutkan Tetap Upload',
-          cancelButtonText: 'Batalkan',
-          confirmButtonColor: 'var(--color-aksen)',
-          cancelButtonColor: 'var(--color-footer2)'
+        
+        if (invalidPhone) {
+          const confirmResult = await Swal.fire({
+            icon: 'warning',
+            title: 'Format Nomor WA Tidak Valid',
+            text: 'Beberapa nomor WA tidak sesuai format. Pastikan hanya berisi angka 10-15 digit tanpa spasi atau karakter khusus.',
+            showCancelButton: true,
+            confirmButtonText: 'Lanjutkan Tetap Upload',
+            cancelButtonText: 'Batalkan',
+            confirmButtonColor: 'var(--color-aksen)',
+            cancelButtonColor: 'var(--color-footer2)'
+          });
+          
+          if (!confirmResult.isConfirmed) {
+            return;
+          }
+        }
+
+        // Validasi format numerik
+        const numericColumns = ['saldo', 'piutang', 'poin_pembelian', 'nominal_pembelian'];
+        
+        const invalidNumeric = jsonData.some(row => {
+          return numericColumns.some(col => {
+            if (row[col] !== undefined && row[col] !== '' && row[col] !== 0) {
+              return isNaN(Number(row[col]));
+            }
+            return false;
+          });
         });
         
-        if (!confirmResult.isConfirmed) {
-          return;
+        if (invalidNumeric) {
+          const confirmResult = await Swal.fire({
+            icon: 'warning',
+            title: 'Format Angka Tidak Valid',
+            text: 'Beberapa kolom saldo/piutang/poin/nominal berisi karakter non-angka. Pastikan hanya berisi angka.',
+            showCancelButton: true,
+            confirmButtonText: 'Lanjutkan Tetap Upload',
+            cancelButtonText: 'Batalkan',
+            confirmButtonColor: 'var(--color-aksen)',
+            cancelButtonColor: 'var(--color-footer2)'
+          });
+          
+          if (!confirmResult.isConfirmed) {
+            return;
+          }
         }
+
+        // Jika validasi lolos, langsung proses
+        await processUpload(jsonData);
+
+      } catch (err: any) {
+        Swal.fire('Error', err.message || 'Gagal membaca format file', 'error');
       }
-
-      // Jika validasi lolos, langsung proses
-      await processUpload(jsonData);
-
-    } catch (err: any) {
-      Swal.fire('Error', err.message || 'Gagal membaca format file', 'error');
-    }
+    };
+    
+    // Gunakan readAsArrayBuffer karena ExcelJS membacanya sebagai buffer
+    reader.readAsArrayBuffer(file);
   };
-  
-  // Gunakan readAsArrayBuffer karena ExcelJS membacanya sebagai buffer
-  reader.readAsArrayBuffer(file);
-};
 
-// === Fungsi Helper untuk Proses Upload ===
-const processUpload = async (jsonData: any[]) => {
-  Swal.fire({ 
-    title: 'Memproses...', 
-    didOpen: () => Swal.showLoading(), 
-    allowOutsideClick: false 
-  });
-
-  try {
-    // Kirim ke API Endpoint (sesuaikan dengan endpoint pelanggan Anda)
-    const res = await fetch('/api/pelanggan/bulk', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ data: jsonData })
+  // === Fungsi Helper untuk Proses Upload ===
+  const processUpload = async (jsonData: any[]) => {
+    Swal.fire({ 
+      title: 'Memproses...', 
+      didOpen: () => Swal.showLoading(), 
+      allowOutsideClick: false 
     });
 
-    const result = await res.json();
-    if (result.status === 'sukses') {
-      Swal.fire('Berhasil', `${jsonData.length} data pelanggan ditambahkan!`, 'success');
-      fetchData(); // Panggil fungsi refresh state Anda
-    } else {
-      throw new Error(result.pesan || 'Gagal menyimpan ke database');
+    try {
+      // Kirim ke API Endpoint (sesuaikan dengan endpoint pelanggan Anda)
+      const res = await fetch('/api/pelanggan/bulk', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: jsonData })
+      });
+
+      const result = await res.json();
+      if (result.status === 'sukses') {
+        Swal.fire('Berhasil', `${jsonData.length} data pelanggan ditambahkan!`, 'success');
+        fetchInitialData(); // Panggil fungsi refresh state Anda
+      } else {
+        throw new Error(result.pesan || 'Gagal menyimpan ke database');
+      }
+    } catch (err: any) {
+      Swal.fire('Error', err.message || 'Gagal menyimpan data', 'error');
     }
-  } catch (err: any) {
-    Swal.fire('Error', err.message || 'Gagal menyimpan data', 'error');
-  }
-};
+  };
 
   const handleInputChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
     const val = e.target.type === 'number' ? Number(e.target.value) : e.target.value;
@@ -470,7 +534,7 @@ const processUpload = async (jsonData: any[]) => {
       if (data.status === 'sukses') {
         Toast.fire({ icon: 'success', title: 'Data Pelanggan Tersimpan!' });
         closeModal();
-        fetchData(); 
+        fetchInitialData(); 
       } else {
         Swal.fire('Gagal', data.pesan || 'Gagal menyimpan data', 'error');
       }
@@ -498,7 +562,7 @@ const processUpload = async (jsonData: any[]) => {
           if (data.status === 'sukses') {
             Toast.fire({ icon: 'success', title: 'Pelanggan Terhapus!' });
             closeDetailModal();
-            fetchData();
+            fetchInitialData();
           } else {
             Swal.fire('Gagal', data.pesan || 'Gagal menghapus', 'error');
           }
@@ -524,7 +588,13 @@ const processUpload = async (jsonData: any[]) => {
   };
 
   const clearSearch = () => {
+    isSearchingRef.current = false;
     setSearchQuery('');
+  };
+
+  const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    isSearchingRef.current = e.target.value.trim() !== '';
+    setSearchQuery(e.target.value);
   };
 
   const displayedList = filteredList.slice(0, visibleCount);
@@ -621,7 +691,7 @@ const processUpload = async (jsonData: any[]) => {
               type="text" 
               placeholder="Cari pelanggan..."
               value={searchQuery}
-              onChange={(e) => setSearchQuery(e.target.value)}
+              onChange={handleSearchChange}
               className="w-full pl-3 pr-8 py-2.5 rounded-lg border border-footer2/40 bg-white text-sm focus:outline-none focus:border-header1"
             />
             {searchQuery && (
@@ -637,6 +707,18 @@ const processUpload = async (jsonData: any[]) => {
           </div>
         </div>
       </div>
+
+      {/* Info Progressive Loading */}
+      {progressiveLoading && (
+        <div className="px-4 md:px-8 pb-2">
+          <div className="bg-header2/5 border border-header2/20 rounded-lg px-4 py-2 flex items-center gap-2 text-xs text-header1">
+            <div className="animate-spin h-3 w-3 border-2 border-header2 border-t-transparent rounded-full"></div>
+            <span>
+              Memuat data di background... ({loadedCount}/{totalCount} pelanggan)
+            </span>
+          </div>
+        </div>
+      )}
 
       {/* Konten Utama */}
       <main className="flex-1 overflow-y-auto px-4 md:px-8 pb-8">
