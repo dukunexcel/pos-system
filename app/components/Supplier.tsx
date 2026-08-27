@@ -328,7 +328,7 @@ const processUpload = async (jsonData: any[]) => {
 
   try {
     // Kirim ke API Endpoint (sesuaikan dengan endpoint supplier Anda)
-    const res = await fetch('/api/supplier/bulk', {
+    const res = await fetch('/api/supplier', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ data: jsonData })

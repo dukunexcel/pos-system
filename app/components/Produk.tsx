@@ -425,7 +425,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
 
         Swal.fire({ title: 'Memproses...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
 
-        const res = await fetch('/api/produk/bulk', {
+        const res = await fetch('/api/produk', {
           method: 'PUT',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ data: jsonData })

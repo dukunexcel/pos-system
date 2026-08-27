@@ -42,7 +42,36 @@ export async function POST(request: Request) {
   try {
     const payload = await request.json();
     
-    // Validasi input
+    // === 1. LOGIKA BULK UPLOAD (DARI EXCEL) ===
+    if (payload.data && Array.isArray(payload.data)) {
+      if (payload.data.length === 0) {
+        return NextResponse.json({ status: 'error', pesan: 'Data array kosong' }, { status: 400 });
+      }
+
+      // Validasi: pastikan semua baris memiliki id_karyawan dan nama_karyawan
+      const invalidData = payload.data.some((row: any) => !row.id_karyawan || !row.nama_karyawan);
+      if (invalidData) {
+        return NextResponse.json({ 
+          status: 'error', 
+          pesan: 'Semua baris di Excel harus memiliki id_karyawan dan nama_karyawan' 
+        }, { status: 400 });
+      }
+
+      // Bulk upsert ke Supabase
+      const { error } = await supabase
+        .from('karyawan')
+        .upsert(payload.data, { onConflict: 'id_karyawan' });
+
+      if (error) throw error;
+      
+      return NextResponse.json({ 
+        status: 'sukses', 
+        pesan: `${payload.data.length} data karyawan berhasil di-upload` 
+      }, { status: 200 });
+    }
+
+    // === 2. LOGIKA INPUT MANUAL (SATU DATA DARI FORM) ===
+    // Validasi input manual
     if (!payload.id_karyawan || !payload.nama_karyawan) {
       return NextResponse.json({ 
         status: 'error', 
@@ -59,7 +88,7 @@ export async function POST(request: Request) {
         peran: payload.peran || 'Kasir',
         pin_akses: payload.pin_akses || '',
         status_aktif: payload.status_aktif || 'true',
-        foto: payload.foto || null // Perbaiki: gunakan null jika tidak ada
+        foto: payload.foto || null 
       }, { onConflict: 'id_karyawan' });
 
     if (error) throw error;

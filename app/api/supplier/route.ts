@@ -13,13 +13,34 @@ export async function GET() {
 }
 
 export async function POST(request: Request) {
-  const payload = await request.json();
-  const { error } = await supabase.from('supplier').upsert({
-    id_supplier: payload.id_supplier, nama_supplier: payload.nama_supplier, kontak_wa: payload.kontak_wa || '',
-    alamat: payload.alamat || '', status_aktif: payload.status_aktif || 'true'
-  }, { onConflict: 'id_supplier' });
-  if (error) return NextResponse.json({ status: 'error', pesan: error.message }, { status: 500 });
-  return NextResponse.json({ status: 'sukses' }, { status: 200 });
+  try {
+    const payload = await request.json();
+
+    // 1. Cek apakah ini BULK UPLOAD (mengandung payload.data berupa array)
+    if (payload.data && Array.isArray(payload.data)) {
+      const { error } = await supabase
+        .from('supplier')
+        .upsert(payload.data, { onConflict: 'id_supplier' });
+
+      if (error) throw error;
+      return NextResponse.json({ status: 'sukses', pesan: 'Bulk upload berhasil' }, { status: 200 });
+    }
+
+    // 2. Jika bukan array, berarti ini INPUT MANUAL (satu data)
+    const { error } = await supabase.from('supplier').upsert({
+      id_supplier: payload.id_supplier, 
+      nama_supplier: payload.nama_supplier, 
+      kontak_wa: payload.kontak_wa || '',
+      alamat: payload.alamat || '', 
+      status_aktif: payload.status_aktif || 'true'
+    }, { onConflict: 'id_supplier' });
+
+    if (error) throw error;
+    return NextResponse.json({ status: 'sukses' }, { status: 200 });
+
+  } catch (err: any) {
+    return NextResponse.json({ status: 'error', pesan: err.message }, { status: 500 });
+  }
 }
 
 export async function DELETE(request: Request) {

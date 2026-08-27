@@ -40,12 +40,37 @@ export async function POST(request: Request) {
   try {
     const payload = await request.json();
     
-    // Validasi data wajib
-    if (!payload.qr || !payload.nama_barang) {
+    // 1. Cek apakah ini BULK UPLOAD (mengandung payload.data berupa array)
+    if (payload.data && Array.isArray(payload.data)) {
+      if (payload.data.length === 0) {
+        return NextResponse.json({ status: 'error', pesan: 'Data array kosong' }, { status: 400 });
+      }
+
+      // Validasi: pastikan semua baris memiliki qr dan nama_barang
+      const invalidData = payload.data.some((row: any) => !row.qr || !row.nama_barang);
+      if (invalidData) {
+        return NextResponse.json({ 
+          status: 'error', 
+          pesan: 'Semua baris di Excel harus memiliki qr dan nama_barang' 
+        }, { status: 400 });
+      }
+
+      // Bulk upsert ke database
+      const { error } = await supabase
+        .from('barang')
+        .upsert(payload.data, { onConflict: 'qr' });
+
+      if (error) throw error;
+      
       return NextResponse.json({ 
-        status: 'error', 
-        pesan: 'QR dan nama_barang wajib diisi' 
-      }, { status: 400 });
+        status: 'sukses', 
+        pesan: `${payload.data.length} data barang berhasil di-upload` 
+      }, { status: 200 });
+    }
+
+    // 2. Jika bukan array, berarti ini INPUT MANUAL (satu data)
+    if (!payload.qr || !payload.nama_barang) {
+      return NextResponse.json({ status: 'error', pesan: 'QR dan nama_barang wajib diisi' }, { status: 400 });
     }
 
     const { error } = await supabase
@@ -74,7 +99,9 @@ export async function POST(request: Request) {
       }, { onConflict: 'qr' });
 
     if (error) throw error;
-    return NextResponse.json({ status: 'sukses', pesan: 'Data berhasil disimpan' }, { status: 200 });
+    
+    return NextResponse.json({ status: 'sukses', pesan: 'Data barang berhasil disimpan' }, { status: 200 });
+    
   } catch (err: any) {
     return NextResponse.json({ status: 'error', pesan: err.message }, { status: 500 });
   }

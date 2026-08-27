@@ -386,11 +386,16 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
     });
 
     try {
-      const res = await fetch('/api/pelanggan/bulk', {
+      const res = await fetch('/api/pelanggan', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ data: jsonData })
       });
+
+      const contentType = res.headers.get("content-type");
+      if (!res.ok || !contentType || !contentType.includes("application/json")) {
+        throw new Error(`Gagal menghubungi server. Status: ${res.status}`);
+      }
 
       const result = await res.json();
       if (result.status === 'sukses') {
@@ -572,8 +577,14 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
     return nama.split(' ').map(word => word[0]).join('').slice(0, 2).toUpperCase();
   };
 
-  const getTipeBadgeColor = (tipe: string) => {
-    const tipeLower = tipe.toLowerCase();
+  const getTipeBadgeColor = (tipe?: string | null) => {
+    // Jika tipe kosong, null, atau undefined, kembalikan warna peringatan
+    if (!tipe) {
+      return 'bg-yellow-100 text-yellow-800 border border-yellow-400 border-dashed'; 
+    }
+
+    const tipeLower = String(tipe).toLowerCase();
+    
     if (tipeLower.includes('ecer') || tipeLower === 'a') {
       return 'bg-footer2/20 text-teksgelap';
     } else if (tipeLower.includes('grosir') || tipeLower === 'b') {
@@ -581,6 +592,7 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
     } else if (tipeLower.includes('khusus') || tipeLower === 'c') {
       return 'bg-aksen/20 text-aksen';
     }
+    
     return 'bg-bgutama text-teksgelap';
   };
 
