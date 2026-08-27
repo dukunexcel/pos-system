@@ -7,7 +7,6 @@ interface LaporanProps {
   onClose: () => void;
 }
 
-// Interface yang disesuaikan dengan struktur database
 interface DataLaporan {
   kiri: {
     jmlTrx: number;
@@ -19,11 +18,20 @@ interface DataLaporan {
     totalTransaksiOnline: number;
     totalPembelian: number;
     totalHutangSupplier: number;
+    totalRetur: number;
   };
   tengah: {
     pengeluaran: Record<string, number>;
+    pemasukan: Record<string, number>;
     totalPengeluaran?: number;
+    totalPemasukan?: number;
     rincianPengeluaran?: {
+      sandi: string;
+      keterangan: string;
+      nominal: number;
+      jumlahTransaksi: number;
+    }[];
+    rincianPemasukan?: {
       sandi: string;
       keterangan: string;
       nominal: number;
@@ -45,20 +53,84 @@ interface DataLaporan {
   detailTransaksi?: {
     metodePembayaran: Record<string, { jumlah: number; total: number }>;
     tipeHarga: Record<string, { jumlah: number; total: number }>;
+    metodePenjualan: Record<string, { jumlah: number; total: number; laba: number; hpp: number }>;
   };
   detailPembelian?: {
     totalPembelian: number;
     totalDibayar: number;
     sisaHutang: number;
     jumlahSupplier: number;
+    jumlahItemDibeli: number;
   };
 }
 
-// Interface untuk data mentah dari API
-interface ApiResponse {
-  status: string;
-  data: DataLaporan;
-}
+// Helper untuk mendapatkan label sandi
+const getSandiLabel = (peng: any, char: string) => {
+  if (!peng || typeof peng !== 'object') return '';
+  
+  const charUpper = char.toUpperCase();
+  const charLower = char.toLowerCase();
+  
+  const possibilities = [
+    `Sandi_${charUpper}`,
+    `sandi_${charLower}`,
+    `Sandi_${charLower}`,
+    `sandi_${charUpper}`,
+    `Label_Sandi_${charUpper}`,
+    `label_sandi_${charLower}`
+  ];
+  
+  for (const key of possibilities) {
+    if (peng[key] && String(peng[key]).trim() !== '') {
+      return peng[key];
+    }
+  }
+  
+  return '';
+};
+
+// Helper untuk memastikan data lengkap
+const ensureDataLaporan = (d: Partial<DataLaporan>): DataLaporan => {
+  return {
+    kiri: {
+      jmlTrx: 0,
+      totalPemasukan: 0,
+      totalHpp: 0,
+      totalLaba: 0,
+      rataKeranjang: 0,
+      totalTransaksiOffline: 0,
+      totalTransaksiOnline: 0,
+      totalPembelian: 0,
+      totalHutangSupplier: 0,
+      totalRetur: 0,
+      ...(d.kiri || {})
+    },
+    tengah: {
+      pengeluaran: {},
+      pemasukan: {},
+      totalPengeluaran: 0,
+      totalPemasukan: 0,
+      rincianPengeluaran: [],
+      rincianPemasukan: [],
+      ...(d.tengah || {})
+    },
+    kanan: {
+      labaTotal: 0,
+      labaOffline: 0,
+      labaOnline: 0,
+      bpom: { omzet: 0, hpp: 0, laba: 0 },
+      nonBpom: { omzet: 0, hpp: 0, laba: 0 },
+      piutangCust: 0,
+      piutangSup: 0,
+      piutangAnggota: 0,
+      piutangKaryawan: 0,
+      hutangSupplier: 0,
+      ...(d.kanan || {})
+    },
+    detailTransaksi: d.detailTransaksi,
+    detailPembelian: d.detailPembelian
+  };
+};
 
 export default function LaporanModul({ onClose }: LaporanProps) {
   // State Pengaturan (Sandi)
@@ -72,16 +144,26 @@ export default function LaporanModul({ onClose }: LaporanProps) {
   // State Data Laporan
   const [dataLaporan, setDataLaporan] = useState<DataLaporan | null>(null);
   const [loading, setLoading] = useState(false);
-  const [rawPengeluaranArray, setRawPengeluaranArray] = useState<{uraian: string, jumlah: number, jumlahTransaksi?: number}[]>([]);
   const [error, setError] = useState<string>('');
+  
+  // State untuk array pemasukan dan pengeluaran
+  const [rawPemasukanArray, setRawPemasukanArray] = useState<{
+    sandi: string;
+    uraian: string;
+    jumlah: number;
+    jumlahTransaksi: number;
+  }[]>([]);
+  
+  const [rawPengeluaranArray, setRawPengeluaranArray] = useState<{
+    sandi: string;
+    uraian: string;
+    jumlah: number;
+    jumlahTransaksi: number;
+  }[]>([]);
 
   // State Presentasi
   const [showPresentasi, setShowPresentasi] = useState(false);
   const [currentSlide, setCurrentSlide] = useState(0);
-
-  // State untuk detail tambahan
-  const [showDetailTransaksi, setShowDetailTransaksi] = useState(false);
-  const [showDetailPembelian, setShowDetailPembelian] = useState(false);
 
   // Inisialisasi Pengaturan & Filter Awal
   useEffect(() => {
@@ -98,7 +180,7 @@ export default function LaporanModul({ onClose }: LaporanProps) {
     };
     
     fetchPengaturan();
-    setFilterWaktu('hari'); // Otomatis set hari ini dan muat data
+    setFilterWaktu('hari');
   }, []);
 
   // Fungsi mengubah rentang waktu otomatis
@@ -117,7 +199,6 @@ export default function LaporanModul({ onClose }: LaporanProps) {
       startD = new Date(d.getFullYear(), d.getMonth(), 1);
     }
     
-    // Mengatasi timezone offset agar yyyy-mm-dd akurat di lokal
     const tzStart = new Date(startD.getTime() - (startD.getTimezoneOffset() * 60000)).toISOString().split('T')[0];
     const tzEnd = new Date(new Date().getTime() - (new Date().getTimezoneOffset() * 60000)).toISOString().split('T')[0];
     
@@ -146,80 +227,123 @@ export default function LaporanModul({ onClose }: LaporanProps) {
         throw new Error(`HTTP ${res.status}: Gagal mengambil data laporan`);
       }
       
-      const result: ApiResponse = await res.json();
+      const result = await res.json();
       
       if (result.status === 'sukses' && result.data) {
-        const d: DataLaporan = result.data;
+        const d = ensureDataLaporan(result.data);
         
-        // SAFEGUARD: Pastikan semua objek ada
-        d.kiri = {
-          jmlTrx: 0,
-          totalPemasukan: 0,
-          totalHpp: 0,
-          totalLaba: 0,
-          rataKeranjang: 0,
-          totalTransaksiOffline: 0,
-          totalTransaksiOnline: 0,
-          totalPembelian: 0,
-          totalHutangSupplier: 0,
-        };
+        // ============ PROSES PEMASUKAN ============
+        let arrPemasukan: {
+          sandi: string;
+          uraian: string;
+          jumlah: number;
+          jumlahTransaksi: number;
+        }[] = [];
         
-        d.tengah = {
-          pengeluaran: {},
-          rincianPengeluaran: [],
-        };
+        const pemasukanMap = new Map<string, { nominal: number; jumlahTransaksi: number }>();
         
-        d.kanan = {
-          labaTotal: 0,
-          labaOffline: 0,
-          labaOnline: 0,
-          bpom: { omzet: 0, hpp: 0, laba: 0 },
-          nonBpom: { omzet: 0, hpp: 0, laba: 0 },
-          piutangCust: 0,
-          piutangSup: 0,
-          piutangAnggota: 0,
-          piutangKaryawan: 0,
-          hutangSupplier: 0,
-        };
-
-        // Proses pengeluaran
-        let arrPengeluaran: {uraian: string, jumlah: number, jumlahTransaksi?: number}[] = [];
-        let tKeluaran = 0;
-        const alfabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
-        
-        // Jika ada rincian pengeluaran dari API, gunakan itu
-        if (d.tengah.rincianPengeluaran && d.tengah.rincianPengeluaran.length > 0) {
-          d.tengah.rincianPengeluaran.forEach(item => {
-            tKeluaran += item.nominal;
-            const labelTeks = item.keterangan || refSandi[`Sandi_${item.sandi}`] || 'Tanpa Keterangan';
-            arrPengeluaran.push({
-              uraian: `${item.sandi}. ${labelTeks}`,
-              jumlah: item.nominal,
+        // Populate dari rincianPemasukan
+        if (d.tengah.rincianPemasukan && d.tengah.rincianPemasukan.length > 0) {
+          d.tengah.rincianPemasukan.forEach(item => {
+            pemasukanMap.set(item.sandi, {
+              nominal: item.nominal,
               jumlahTransaksi: item.jumlahTransaksi
             });
           });
-        } else {
-          // Fallback ke metode lama
-          alfabet.forEach(char => {
-            if (d.tengah.pengeluaran[char]) {
-              tKeluaran += d.tengah.pengeluaran[char];
-              let labelTeks = refSandi[`Sandi_${char}`] || refSandi[`sandi_${char.toLowerCase()}`] || 'Tanpa Keterangan';
-              let namaFull = `${char}. ${labelTeks}`;
-              arrPengeluaran.push({ uraian: namaFull, jumlah: d.tengah.pengeluaran[char] });
-            }
-          });
-
-          if (d.tengah.pengeluaran['NONE']) {
-            tKeluaran += d.tengah.pengeluaran['NONE'];
-            arrPengeluaran.push({ uraian: "Lainnya (Tanpa Sandi)", jumlah: d.tengah.pengeluaran['NONE'] });
+        }
+        
+        // Populate dari pemasukan object
+        Object.entries(d.tengah.pemasukan || {}).forEach(([sandi, nominal]) => {
+          if (!pemasukanMap.has(sandi)) {
+            pemasukanMap.set(sandi, {
+              nominal: nominal,
+              jumlahTransaksi: 0
+            });
           }
+        });
+        
+        // Tampilkan SEMUA sandi A-Z untuk pemasukan
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").forEach(char => {
+          const dataPemasukan = pemasukanMap.get(char);
+          const labelTeks = getSandiLabel(refSandi, char);
+          
+          if (labelTeks && String(labelTeks).trim() !== '') {
+            const nominal = dataPemasukan?.nominal || 0;
+            const jumlahTrx = dataPemasukan?.jumlahTransaksi || 0;
+            
+            arrPemasukan.push({
+              sandi: char,
+              uraian: `${char}. ${labelTeks}`,
+              jumlah: nominal,
+              jumlahTransaksi: jumlahTrx
+            });
+          }
+        });
+        
+        // ============ PROSES PENGELUARAN ============
+        let arrPengeluaran: {
+          sandi: string;
+          uraian: string;
+          jumlah: number;
+          jumlahTransaksi: number;
+        }[] = [];
+        
+        const pengeluaranMap = new Map<string, { nominal: number; jumlahTransaksi: number }>();
+        
+        // Populate dari rincianPengeluaran
+        if (d.tengah.rincianPengeluaran && d.tengah.rincianPengeluaran.length > 0) {
+          d.tengah.rincianPengeluaran.forEach(item => {
+            pengeluaranMap.set(item.sandi, {
+              nominal: item.nominal,
+              jumlahTransaksi: item.jumlahTransaksi
+            });
+          });
+        }
+        
+        // Populate dari pengeluaran object
+        Object.entries(d.tengah.pengeluaran || {}).forEach(([sandi, nominal]) => {
+          if (!pengeluaranMap.has(sandi)) {
+            pengeluaranMap.set(sandi, {
+              nominal: nominal,
+              jumlahTransaksi: 0
+            });
+          }
+        });
+        
+        // Tampilkan SEMUA sandi A-Z untuk pengeluaran
+        "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").forEach(char => {
+          const dataPengeluaran = pengeluaranMap.get(char);
+          const labelTeks = getSandiLabel(refSandi, char);
+          
+          if (labelTeks && String(labelTeks).trim() !== '') {
+            const nominal = dataPengeluaran?.nominal || 0;
+            const jumlahTrx = dataPengeluaran?.jumlahTransaksi || 0;
+            
+            arrPengeluaran.push({
+              sandi: char,
+              uraian: `${char}. ${labelTeks}`,
+              jumlah: nominal,
+              jumlahTransaksi: jumlahTrx
+            });
+          }
+        });
+        
+        // Tambahkan NONE jika ada
+        if (pengeluaranMap.has('NONE') && pengeluaranMap.get('NONE')!.nominal > 0) {
+          const dataNone = pengeluaranMap.get('NONE')!;
+          arrPengeluaran.push({
+            sandi: 'NONE',
+            uraian: "Lainnya (Tanpa Sandi)",
+            jumlah: dataNone.nominal,
+            jumlahTransaksi: dataNone.jumlahTransaksi
+          });
         }
 
-        d.tengah.totalPengeluaran = tKeluaran;
+        setRawPemasukanArray(arrPemasukan);
         setRawPengeluaranArray(arrPengeluaran);
         setDataLaporan(d);
       } else {
-        throw new Error(result.status === 'error' ? 'Data tidak ditemukan' : 'Format respons tidak valid');
+        throw new Error('Format respons tidak valid');
       }
     } catch (err: any) {
       setError(err.message);
@@ -242,7 +366,7 @@ export default function LaporanModul({ onClose }: LaporanProps) {
 
   // Format mata uang
   const formatRupiah = (value: number) => {
-    return `Rp ${value.toLocaleString('id-ID')}`;
+    return `Rp ${(value || 0).toLocaleString('id-ID')}`;
   };
 
   // === FUNGSI EKSPOR AUDIT GITHUB ===
@@ -274,7 +398,7 @@ export default function LaporanModul({ onClose }: LaporanProps) {
       durasi_hari: diffDays.toString(),
       
       penjualan_kotor: d.kiri.totalPemasukan.toString(),
-      total_retur: "0",
+      total_retur: d.kiri.totalRetur.toString(),
       total_pemasukan: d.kiri.totalPemasukan.toString(),
       
       total_belanja: (d.tengah.totalPengeluaran || 0).toString(),
@@ -344,7 +468,6 @@ export default function LaporanModul({ onClose }: LaporanProps) {
           </div>
         </div>
         
-        {/* TOMBOL AKSI KANAN */}
         <div className="flex items-center gap-2">
           <button onClick={bukaEksporEksternal} className="bg-blue-50 hover:bg-blue-600 hover:text-white text-blue-600 p-2 rounded-lg transition border border-blue-200 shadow-sm" title="Export Laporan Eksternal (Audit)">
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14"></path></svg>
@@ -417,48 +540,180 @@ export default function LaporanModul({ onClose }: LaporanProps) {
                 <p className="text-xs text-footer2 font-semibold">Rata-rata Keranjang</p>
                 <p className="text-md font-bold text-teksgelap">{loading ? '-' : formatRupiah(Math.round(dataLaporan?.kiri.rataKeranjang || 0))}</p>
               </div>
+              
+              <div className="border-t border-footer2/20 pt-4 mt-2">
+                <p className="text-xs text-footer2 font-semibold mb-2">Info Transaksi</p>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-footer2">Offline:</span>
+                  <span className="font-bold text-teksgelap">{dataLaporan?.kiri.totalTransaksiOffline || 0}</span>
+                </div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-footer2">Online:</span>
+                  <span className="font-bold text-teksgelap">{dataLaporan?.kiri.totalTransaksiOnline || 0}</span>
+                </div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-footer2">Pembelian:</span>
+                  <span className="font-bold text-teksgelap">{formatRupiah(dataLaporan?.kiri.totalPembelian || 0)}</span>
+                </div>
+                <div className="flex justify-between text-xs mb-1">
+                  <span className="text-footer2">Retur:</span>
+                  <span className="font-bold text-aksen">{formatRupiah(dataLaporan?.kiri.totalRetur || 0)}</span>
+                </div>
+                <div className="flex justify-between text-xs">
+                  <span className="text-footer2">Hutang Supplier:</span>
+                  <span className="font-bold text-red-600">{formatRupiah(dataLaporan?.kiri.totalHutangSupplier || 0)}</span>
+                </div>
+              </div>
             </div>
           </div>
         </div>
 
-        {/* PANEL TENGAH: PENGELUARAN */}
+        {/* PANEL TENGAH: ARUS KAS (PEMASUKAN & PENGELUARAN) */}
         <div className="bg-white rounded-xl shadow-sm border border-footer2/20 flex flex-col overflow-hidden">
           <div className="p-3 bg-bglite border-b border-footer2/20 flex justify-between items-center shrink-0">
-            <h3 className="font-bold text-sm text-header1">Ringkasan Pengeluaran</h3>
-            {rawPengeluaranArray.length > 0 && (
-              <span className="text-xs text-footer2">{rawPengeluaranArray.length} item</span>
-            )}
+            <h3 className="font-bold text-sm text-header1">Arus Kas per Sandi</h3>
+            <div className="flex gap-2 text-[10px]">
+              <span className="text-header2 font-bold">+{formatRupiah(dataLaporan?.tengah?.totalPemasukan || 0)}</span>
+              <span className="text-aksen font-bold">-{formatRupiah(dataLaporan?.tengah?.totalPengeluaran || 0)}</span>
+            </div>
           </div>
-          <div className="flex-1 overflow-auto bg-white p-2">
+          
+          <div className="flex-1 overflow-auto bg-white">
             <table className="w-full text-left whitespace-nowrap text-sm">
+              <thead className="sticky top-0 bg-bglite border-b border-footer2/20 z-10">
+                <tr className="text-[10px] uppercase text-footer2 font-bold">
+                  <th className="p-2 w-12 text-center">Sandi</th>
+                  <th className="p-2">Keterangan</th>
+                  <th className="p-2 text-right">Masuk</th>
+                  <th className="p-2 text-right">Keluar</th>
+                </tr>
+              </thead>
               <tbody className="divide-y divide-footer2/10 text-teksgelap font-medium">
                 {loading ? (
-                  <tr><td colSpan={2} className="p-10 text-center text-footer2 italic animate-pulse">Memproses Data...</td></tr>
+                  <tr><td colSpan={4} className="p-10 text-center text-footer2 italic animate-pulse">Memproses Data...</td></tr>
                 ) : !dataLaporan ? (
-                  <tr><td colSpan={2} className="p-10 text-center text-footer2 italic">Belum ada data. Silakan muat laporan.</td></tr>
+                  <tr><td colSpan={4} className="p-10 text-center text-footer2 italic">Belum ada data. Silakan muat laporan.</td></tr>
                 ) : (
                   <>
-                    {rawPengeluaranArray.length === 0 ? (
-                      <tr><td colSpan={2} className="p-10 text-center text-footer2 italic">Tidak ada pengeluaran.</td></tr>
-                    ) : (
-                      <>
-                        {rawPengeluaranArray.map((p, idx) => (
-                          <tr key={idx} className={`hover:bg-bgutama/50 ${p.uraian.includes('Lainnya') ? 'bg-red-50/20 text-aksen' : ''}`}>
-                            <td className="p-3 text-xs font-bold">
-                              {p.uraian}
-                              {p.jumlahTransaksi && p.jumlahTransaksi > 0 && (
-                                <span className="ml-2 text-[10px] text-footer2">({p.jumlahTransaksi}x)</span>
-                              )}
-                            </td>
-                            <td className="p-3 text-xs font-mono text-right">{formatRupiah(p.jumlah)}</td>
-                          </tr>
-                        ))}
-                        <tr className="bg-header2/10 border-t-2 border-header2/30">
-                          <td className="p-3 text-sm font-black text-header1">Total Pengeluaran</td>
-                          <td className="p-3 text-sm font-black font-mono text-right text-header1">{formatRupiah(dataLaporan.tengah?.totalPengeluaran || 0)}</td>
+                    {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(char => {
+                      const labelTeks = getSandiLabel(refSandi, char);
+                      if (!labelTeks || String(labelTeks).trim() === '') return null;
+                      
+                      const dataPemasukan = rawPemasukanArray.find(p => p.sandi === char);
+                      const dataPengeluaran = rawPengeluaranArray.find(p => p.sandi === char);
+                      
+                      const nominalMasuk = dataPemasukan?.jumlah || 0;
+                      const nominalKeluar = dataPengeluaran?.jumlah || 0;
+                      const jumlahTrxMasuk = dataPemasukan?.jumlahTransaksi || 0;
+                      const jumlahTrxKeluar = dataPengeluaran?.jumlahTransaksi || 0;
+                      
+                      const adaData = nominalMasuk > 0 || nominalKeluar > 0;
+                      
+                      return (
+                        <tr 
+                          key={char} 
+                          className={`hover:bg-bgutama/50 ${
+                            !adaData ? 'opacity-40' : ''
+                          } ${
+                            char === 'D' && nominalMasuk > 0 ? 'bg-header2/5' : ''
+                          } ${
+                            char === 'B' && nominalKeluar > 0 ? 'bg-red-50/20' : ''
+                          } ${
+                            char === 'E' && nominalKeluar > 0 ? 'bg-orange-50/20' : ''
+                          }`}
+                        >
+                          <td className="p-2 text-center">
+                            <span className={`inline-block px-2 py-1 rounded text-[10px] font-black ${
+                              nominalMasuk > 0 && nominalKeluar === 0
+                                ? 'bg-header2/20 text-header1'
+                                : nominalKeluar > 0 && nominalMasuk === 0
+                                ? 'bg-aksen/20 text-aksen'
+                                : nominalMasuk > 0 && nominalKeluar > 0
+                                ? 'bg-blue-100 text-blue-600'
+                                : 'bg-bgutama text-footer2/50'
+                            }`}>
+                              {char}
+                            </span>
+                          </td>
+                          <td className="p-2 text-xs font-bold">
+                            <div>{char}. {labelTeks}</div>
+                            {jumlahTrxMasuk > 0 && (
+                              <span className="text-[9px] text-header2 block">({jumlahTrxMasuk}x masuk)</span>
+                            )}
+                            {jumlahTrxKeluar > 0 && (
+                              <span className="text-[9px] text-aksen block">({jumlahTrxKeluar}x keluar)</span>
+                            )}
+                          </td>
+                          <td className={`p-2 text-xs font-mono text-right ${
+                            nominalMasuk > 0 ? 'text-header2 font-bold' : 'text-footer2/40'
+                          }`}>
+                            {nominalMasuk > 0 ? `+${formatRupiah(nominalMasuk)}` : '-'}
+                          </td>
+                          <td className={`p-2 text-xs font-mono text-right ${
+                            nominalKeluar > 0 ? 'text-aksen font-bold' : 'text-footer2/40'
+                          }`}>
+                            {nominalKeluar > 0 ? `-${formatRupiah(nominalKeluar)}` : '-'}
+                          </td>
                         </tr>
-                      </>
+                      );
+                    })}
+                    
+                    {/* Baris NONE jika ada */}
+                    {(rawPengeluaranArray.some(p => p.sandi === 'NONE') || 
+                      rawPemasukanArray.some(p => p.sandi === 'NONE')) && (
+                      <tr className="hover:bg-bgutama/50 bg-red-50/10">
+                        <td className="p-2 text-center">
+                          <span className="inline-block px-2 py-1 rounded text-[10px] font-black bg-footer2/20 text-footer2">
+                            NONE
+                          </span>
+                        </td>
+                        <td className="p-2 text-xs font-bold text-footer2">
+                          Lainnya (Tanpa Sandi)
+                        </td>
+                        <td className="p-2 text-xs font-mono text-right text-footer2">
+                          {(() => {
+                            const dataNone = rawPemasukanArray.find(p => p.sandi === 'NONE');
+                            return dataNone && dataNone.jumlah > 0 ? `+${formatRupiah(dataNone.jumlah)}` : '-';
+                          })()}
+                        </td>
+                        <td className="p-2 text-xs font-mono text-right text-footer2">
+                          {(() => {
+                            const dataNone = rawPengeluaranArray.find(p => p.sandi === 'NONE');
+                            return dataNone && dataNone.jumlah > 0 ? `-${formatRupiah(dataNone.jumlah)}` : '-';
+                          })()}
+                        </td>
+                      </tr>
                     )}
+                    
+                    {/* TOTAL BAR */}
+                    <tr className="bg-header1 text-white border-t-2 border-header1 sticky bottom-0">
+                      <td colSpan={2} className="p-3 text-sm font-black">
+                        TOTAL ARUS KAS
+                      </td>
+                      <td className="p-3 text-sm font-black font-mono text-right">
+                        +{formatRupiah(dataLaporan.tengah?.totalPemasukan || 0)}
+                      </td>
+                      <td className="p-3 text-sm font-black font-mono text-right">
+                        -{formatRupiah(dataLaporan.tengah?.totalPengeluaran || 0)}
+                      </td>
+                    </tr>
+                    
+                    {/* SALDO BERSIH */}
+                    <tr className="bg-bglite border-t border-footer2/20">
+                      <td colSpan={2} className="p-3 text-sm font-black text-header1">
+                        SALDO BERSIH
+                      </td>
+                      <td colSpan={2} className={`p-3 text-sm font-black font-mono text-right ${
+                        (dataLaporan.tengah?.totalPemasukan || 0) - (dataLaporan.tengah?.totalPengeluaran || 0) >= 0
+                          ? 'text-header2'
+                          : 'text-aksen'
+                      }`}>
+                        {formatRupiah(
+                          (dataLaporan.tengah?.totalPemasukan || 0) - 
+                          (dataLaporan.tengah?.totalPengeluaran || 0)
+                        )}
+                      </td>
+                    </tr>
                   </>
                 )}
               </tbody>
@@ -522,7 +777,12 @@ export default function LaporanModul({ onClose }: LaporanProps) {
                     <tr className="hover:bg-bgutama/50 bg-bglite/50 border-t border-footer2/20">
                       <td className="p-3 text-xs font-black text-blue-600">Σ Piutang (Uang di Luar)</td>
                       <td className="p-3 text-xs font-mono text-right font-bold text-blue-600">
-                        {formatRupiah(dataLaporan.kanan.piutangCust + dataLaporan.kanan.piutangSup + dataLaporan.kanan.piutangAnggota + dataLaporan.kanan.piutangKaryawan)}
+                        {formatRupiah(
+                          dataLaporan.kanan.piutangCust + 
+                          dataLaporan.kanan.piutangSup + 
+                          dataLaporan.kanan.piutangAnggota + 
+                          dataLaporan.kanan.piutangKaryawan
+                        )}
                       </td>
                     </tr>
                     <tr className="hover:bg-bgutama/50">
@@ -534,8 +794,10 @@ export default function LaporanModul({ onClose }: LaporanProps) {
                       <td className="p-3 text-xs font-mono text-right font-bold">{formatRupiah(dataLaporan.kanan.piutangSup)}</td>
                     </tr>
                     <tr className="hover:bg-bgutama/50">
-                      <td className="p-3 text-xs font-medium pl-6 text-footer2">_ Piutang Karyawan</td>
-                      <td className="p-3 text-xs font-mono text-right font-bold">{formatRupiah(dataLaporan.kanan.piutangAnggota + dataLaporan.kanan.piutangKaryawan)}</td>
+                      <td className="p-3 text-xs font-medium pl-6 text-footer2">_ Piutang Karyawan/Anggota</td>
+                      <td className="p-3 text-xs font-mono text-right font-bold">
+                        {formatRupiah(dataLaporan.kanan.piutangAnggota + dataLaporan.kanan.piutangKaryawan)}
+                      </td>
                     </tr>
                     <tr className="hover:bg-bgutama/50 bg-red-50/20 border-t border-red-200">
                       <td className="p-3 text-xs font-black text-red-600">Σ Hutang Supplier</td>
@@ -549,7 +811,7 @@ export default function LaporanModul({ onClose }: LaporanProps) {
         </div>
       </div>
 
-      {/* OVERLAY PRESENTASI (TIDAK BERUBAH DARI VERSI SEBELUMNYA) */}
+      {/* OVERLAY PRESENTASI */}
       <div 
         className={`fixed inset-0 z-[100] text-gray-100 flex-col transition-all duration-500 ${showPresentasi ? 'flex opacity-100' : 'opacity-0 pointer-events-none hidden'}`} 
         style={{ backgroundColor: slideColors[currentSlide], fontFamily: "'Segoe UI', Tahoma, Geneva, Verdana, sans-serif" }}
@@ -594,7 +856,7 @@ export default function LaporanModul({ onClose }: LaporanProps) {
                     <div className="bg-white/5 border-t-4 border-gray-500 p-8 rounded-xl backdrop-blur-sm shadow-2xl">
                       <p className="text-gray-400 font-bold uppercase tracking-widest text-sm mb-4">Total Pemasukan</p>
                       <p className="text-4xl md:text-5xl font-black text-white font-mono">{formatRupiah(dataLaporan.kiri.totalPemasukan)}</p>
-                      <p className="text-gray-500 mt-4 font-medium">{dataLaporan.kiri.jmlTrx} Transaksi sukses</p>
+                      <p className="text-gray-500 mt-4 font-medium">{dataLaporan.kiri.jmlTrx} Transaksi</p>
                     </div>
                     <div className="bg-white/5 border-t-4 border-red-500 p-8 rounded-xl backdrop-blur-sm shadow-2xl">
                       <p className="text-gray-400 font-bold uppercase tracking-widest text-sm mb-4">Harga Pokok (HPP)</p>
@@ -613,20 +875,25 @@ export default function LaporanModul({ onClose }: LaporanProps) {
               {currentSlide === 2 && (
                 <div className="w-full max-w-5xl animate-[slideUp_0.6s_ease-out_forwards]">
                   <h2 className="text-3xl md:text-4xl font-bold mb-12 text-center text-white">
-                    <span className="text-[#5A7718] mr-3">02.</span> PENGELUARAN (BIAYA)
+                    <span className="text-[#5A7718] mr-3">02.</span> ARUS KAS & PENGELUARAN
                   </h2>
                   <div className="bg-white/5 rounded-2xl p-8 border border-white/10 shadow-2xl">
                     <div className="flex justify-between items-end mb-8 border-b border-white/10 pb-6">
                       <div>
-                        <p className="text-gray-400 uppercase tracking-widest font-bold text-sm">Total Beban/Pengeluaran</p>
-                        <p className="text-5xl font-black text-red-400 font-mono mt-2">{formatRupiah(dataLaporan.tengah?.totalPengeluaran || 0)}</p>
+                        <p className="text-gray-400 uppercase tracking-widest font-bold text-sm">Pemasukan (Sandi D)</p>
+                        <p className="text-4xl font-black text-green-400 font-mono mt-2">
+                          {formatRupiah(dataLaporan.tengah?.totalPemasukan || 0)}
+                        </p>
                       </div>
-                      <div className="text-right">
-                        <p className="text-gray-400 font-medium">Berdasarkan Sandi A-Z</p>
+                      <div>
+                        <p className="text-gray-400 uppercase tracking-widest font-bold text-sm text-right">Pengeluaran Total</p>
+                        <p className="text-4xl font-black text-red-400 font-mono mt-2">
+                          {formatRupiah(dataLaporan.tengah?.totalPengeluaran || 0)}
+                        </p>
                       </div>
                     </div>
-                    <div className="grid grid-cols-2 gap-x-12 gap-y-4 max-h-[40vh] overflow-y-auto pr-4 scrollbar-thin scrollbar-thumb-white/20 scrollbar-track-white/5">
-                      {rawPengeluaranArray.map((k, idx) => (
+                    <div className="grid grid-cols-2 gap-x-12 gap-y-4 max-h-[40vh] overflow-y-auto pr-4">
+                      {rawPengeluaranArray.filter(p => p.jumlah > 0).map((k, idx) => (
                         <div key={idx} className="flex justify-between items-center border-b border-white/5 py-2">
                           <span className="text-gray-300 text-lg">{k.uraian}</span>
                           <span className="text-white font-bold font-mono text-xl">{formatRupiah(k.jumlah)}</span>
@@ -669,7 +936,12 @@ export default function LaporanModul({ onClose }: LaporanProps) {
                     <div className="bg-gradient-to-br from-blue-900/30 to-transparent rounded-2xl p-8 border border-blue-500/30">
                       <h3 className="text-xl font-bold text-blue-400 mb-6 uppercase tracking-wider">Uang Tertahan (Piutang)</h3>
                       <p className="text-4xl font-black text-white font-mono mb-8">
-                        {formatRupiah(dataLaporan.kanan.piutangCust + dataLaporan.kanan.piutangSup + dataLaporan.kanan.piutangAnggota + dataLaporan.kanan.piutangKaryawan)}
+                        {formatRupiah(
+                          dataLaporan.kanan.piutangCust + 
+                          dataLaporan.kanan.piutangSup + 
+                          dataLaporan.kanan.piutangAnggota + 
+                          dataLaporan.kanan.piutangKaryawan
+                        )}
                       </p>
                       <div className="space-y-4">
                         <div className="flex justify-between border-b border-white/10 pb-2 text-gray-300">
@@ -681,7 +953,7 @@ export default function LaporanModul({ onClose }: LaporanProps) {
                           <span className="font-mono text-white">{formatRupiah(dataLaporan.kanan.piutangSup)}</span>
                         </div>
                         <div className="flex justify-between border-b border-white/10 pb-2 text-gray-300">
-                          <span>Piutang Karyawan</span>
+                          <span>Piutang Karyawan/Anggota</span>
                           <span className="font-mono text-white">{formatRupiah(dataLaporan.kanan.piutangAnggota + dataLaporan.kanan.piutangKaryawan)}</span>
                         </div>
                       </div>
@@ -693,7 +965,6 @@ export default function LaporanModul({ onClose }: LaporanProps) {
           )}
         </div>
         
-        {/* NAVIGASI PRESENTASI BAWAH */}
         <div className="absolute bottom-6 left-0 right-0 flex flex-col items-center gap-4">
           <div className="flex gap-4">
             <button onClick={prevSlide} className="p-3 bg-white/5 border border-white/10 hover:bg-[#5A7718] hover:border-[#5A7718] rounded-full transition text-white">
