@@ -35,6 +35,12 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
   const [tipeMember, setTipeMember] = useState<string[]>([]);
   const [isProcessing, setIsProcessing] = useState(false);
 
+  // State Khusus Modul Auth
+  const [authList, setAuthList] = useState<any[]>([]);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authForm, setAuthForm] = useState<any>({});
+  const [isAuthEdit, setIsAuthEdit] = useState(false);
+
   // State Khusus Modul Dompet
   const [dompetList, setDompetList] = useState<any[]>([]);
   const [showDompetModal, setShowDompetModal] = useState(false);
@@ -66,6 +72,11 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
         const resDompet = await fetch('/api/dompet');
         const dataDompet = await resDompet.json();
         if (dataDompet.status === 'sukses') setDompetList(dataDompet.data || []);
+
+        // Fetch Auth (Asumsi endpoint API /api/auth)
+        const resAuth = await fetch('/api/auth');
+        const dataAuth = await resAuth.json();
+        if (dataAuth.status === 'sukses') setAuthList(dataAuth.data || []);
 
         const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
         const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
@@ -129,15 +140,59 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
     } catch (err) { Swal.fire('Error', 'Koneksi terputus', 'error'); }
   };
 
+  // === FITUR AUTH ===
+  const fetchAuth = async () => {
+    try {
+      const res = await fetch('/api/auth');
+      const d = await res.json();
+      if (d.status === 'sukses') setAuthList(d.data);
+    } catch (err) {}
+  };
+
+  const handleInputAuth = (e: any) => {
+    setAuthForm({ ...authForm, [e.target.name]: e.target.value });
+  };
+  
+  const handleCheckAuth = (e: any) => setAuthForm({ ...authForm, [e.target.name]: e.target.checked ? 'true' : 'false' });
+
+  const openAuthModal = (item?: any) => {
+    if (item) { setAuthForm(item); setIsAuthEdit(true); }
+    else { setAuthForm({ Email: '', Sandi: '', Role: 'Kasir', Status_Aktif: 'true' }); setIsAuthEdit(false); }
+    setShowAuthModal(true);
+  };
+
+  const handleSimpanAuth = async (e: any) => {
+    e.preventDefault(); 
+    Swal.fire({ title: 'Menyimpan...', didOpen: () => Swal.showLoading() });
+    await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(authForm) });
+    Swal.close(); Toast.fire({ icon: 'success', title: 'Pengguna Tersimpan!' }); 
+    setShowAuthModal(false); 
+    fetchAuth();
+  };
+
+  // === FITUR DOMPET ===
   const handleInputDompet = (e: any) => {
     const val = e.target.type === 'number' ? Number(e.target.value) : e.target.value;
     setDompetForm({ ...dompetForm, [e.target.name]: val });
   };
+  
   const handleCheckDompet = (e: any) => setDompetForm({ ...dompetForm, [e.target.name]: e.target.checked ? 'true' : 'false' });
 
   const openDompetModal = (item?: any) => {
-    if (item) { setDompetForm(item); setIsDompetEdit(true); }
-    else { setDompetForm({ id_dompet: `KAS-${Date.now().toString().slice(-4)}`, kategori: 'Tunai', saldo_aktif: 0, status_aktif: 'true' }); setIsDompetEdit(false); }
+    if (item) { 
+      setDompetForm(item); setIsDompetEdit(true); 
+    } else { 
+      setDompetForm({ 
+        id_dompet: `KAS-${Date.now().toString().slice(-4)}`, 
+        kategori: 'Tunai', 
+        saldo_aktif: 0, 
+        status_aktif: 'true',
+        label: 'Umum', // Default Umum
+        is_locked: 'false',
+        is_hidden: 'false'
+      }); 
+      setIsDompetEdit(false); 
+    }
     setShowDompetModal(true);
   };
 
@@ -296,7 +351,7 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
     }
   };
 
-  return (
+return (
     <div className="h-full flex flex-col md:flex-row animate-[fadeIn_0.3s_ease-in-out]">
       {/* SIDEBAR */}
       <aside className="w-full md:w-64 bg-white border-r border-footer2/20 flex flex-col shrink-0">
@@ -315,8 +370,10 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
           <button onClick={() => setActiveTab('struk')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'struk' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>🧾 Desain Struk</button>
           <button onClick={() => setActiveTab('sandi')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'sandi' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>📊 Sandi Transaksi</button>
           <button onClick={() => setActiveTab('dompet')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'dompet' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>💳 Rekening & Kas</button>
+	        <button onClick={() => setActiveTab('auth')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'auth' ? 'bg-header2/10 text-header1 border-header2/30 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>👥 Pengguna & Akses</button>
           <button onClick={() => setActiveTab('backup')} className={`flex-1 md:flex-none text-left px-4 py-3 rounded-lg font-bold text-sm transition whitespace-nowrap ${activeTab === 'backup' ? 'bg-red-50 text-red-600 border-red-200 border' : 'text-footer2 hover:bg-bgutama border-transparent border'}`}>⚠️ Backup & Reset</button>
         </nav>
+
       </aside>
 
       {/* KONTEN */}
@@ -542,7 +599,7 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
           </div>
         )}
 
-        {/* TAB 5: REKENING & KAS (BARU) */}
+        {/* TAB DOMPET: REKENING & KAS */}
         {activeTab === 'dompet' && (
           <div className="space-y-6">
             <div className="flex justify-between items-center border-b border-footer2/20 pb-2">
@@ -557,13 +614,17 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
                 <div key={i} className="bg-white p-5 rounded-xl shadow-sm border border-footer2/30 flex flex-col justify-between hover:shadow-md transition">
                   <div>
                     <div className="flex justify-between items-start mb-2">
-                      <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider ${p.kategori === 'Tunai' ? 'bg-header2/20 text-header1' : (p.kategori === 'Bank' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700')}`}>
-                        {p.kategori}
-                      </span>
+                      <div className="flex gap-1">
+                        <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider ${p.kategori === 'Tunai' ? 'bg-header2/20 text-header1' : (p.kategori === 'Bank' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700')}`}>
+                          {p.kategori}
+                        </span>
+                        {p.is_locked === 'true' && <span title="Terkunci untuk perangkat lain" className="text-[10px] bg-red-100 text-red-600 px-1 py-1 rounded">🔒</span>}
+                        {p.is_hidden === 'true' && <span title="Tersembunyi" className="text-[10px] bg-gray-200 text-gray-600 px-1 py-1 rounded">👁️‍🗨️</span>}
+                      </div>
                       <span className="text-xs font-mono text-footer2">{p.id_dompet}</span>
                     </div>
                     <h3 className="font-bold text-lg">{p.nama_dompet}</h3>
-                    <p className="text-xs text-footer2 mb-4">{p.status_aktif === 'true' ? '🟢 Aktif Digunakan' : '🔴 Nonaktif'}</p>
+                    <p className="text-[11px] font-semibold text-header2/80 mb-4">Pemilik: {p.label}</p>
                   </div>
                   <div className="border-t border-footer2/10 pt-3 flex justify-between items-end">
                     <div>
@@ -571,6 +632,38 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
                       <div className="font-black text-header1">Rp {p.saldo_aktif?.toLocaleString('id-ID')}</div>
                     </div>
                     <button onClick={() => openDompetModal(p)} className="bg-bgutama hover:bg-header2/20 text-header1 px-3 py-1.5 rounded text-xs font-bold transition border border-header2/20">Edit</button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* TAB AUTH: PENGGUNA & AKSES */}
+        {activeTab === 'auth' && (
+          <div className="space-y-6">
+            <div className="flex justify-between items-center border-b border-footer2/20 pb-2">
+              <h3 className="text-lg font-black text-header1">Daftar Pengguna / Perangkat</h3>
+              <button onClick={() => openAuthModal()} className="bg-header1 hover:bg-header2 text-white px-4 py-2 rounded-lg font-bold text-xs shadow transition">
+                + Tambah Pengguna
+              </button>
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {authList.map((a, i) => (
+                <div key={i} className={`bg-white p-5 rounded-xl shadow-sm border border-footer2/30 flex flex-col justify-between hover:shadow-md transition ${a.Role === 'Superadmin' ? 'border-l-4 border-l-header1' : ''}`}>
+                  <div>
+                    <div className="flex justify-between items-start mb-2">
+                      <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider ${a.Role === 'Superadmin' ? 'bg-red-100 text-red-700' : 'bg-header2/20 text-header1'}`}>
+                        {a.Role}
+                      </span>
+                      {a.Status_Aktif === 'true' ? <span className="text-[10px] text-green-600 font-bold bg-green-50 px-2 rounded">Aktif</span> : <span className="text-[10px] text-red-600 font-bold bg-red-50 px-2 rounded">Nonaktif</span>}
+                    </div>
+                    <h3 className="font-bold text-md text-header1 truncate">{a.Email}</h3>
+                    <p className="text-xs text-footer2 font-mono mt-1">Sandi: {a.Sandi}</p>
+                  </div>
+                  <div className="border-t border-footer2/10 mt-4 pt-3 flex justify-end">
+                    <button onClick={() => openAuthModal(a)} className="bg-bgutama hover:bg-header2/20 text-header1 px-3 py-1.5 rounded text-xs font-bold transition border border-header2/20">Edit</button>
                   </div>
                 </div>
               ))}
@@ -630,7 +723,53 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
         )}
       </main>
 
-      {/* MODAL FORM DOMPET */}
+{/* =========================================
+          MODAL FORM PENGGUNA (AUTH)
+      ========================================= */}
+      {showAuthModal && (
+        <div className="absolute inset-0 bg-teksgelap/50 backdrop-blur-sm flex justify-center items-center p-4 z-[60]">
+          <form onSubmit={handleSimpanAuth} className="bg-white p-6 rounded-2xl w-full max-w-md flex flex-col gap-4 shadow-2xl animate-[scaleIn_0.2s_ease-out]">
+            <div className="flex justify-between items-center border-b border-footer2/20 pb-3">
+              <h3 className="font-bold text-lg text-header1">{isAuthEdit ? 'Edit Pengguna' : 'Pengguna Baru'}</h3>
+              <button type="button" onClick={() => setShowAuthModal(false)} className="text-footer2 hover:text-aksen font-bold text-xl">×</button>
+            </div>
+            
+            <div>
+              <label className="text-xs font-bold block mb-1">Email / ID Perangkat</label>
+              <input type="text" name="Email" required disabled={isAuthEdit} value={authForm.Email || ''} onChange={handleInputAuth} className="p-3 border rounded font-bold w-full outline-none focus:border-header1 bg-bgutama disabled:opacity-50" placeholder="kasir1@toko.com" />
+            </div>
+            
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-xs font-bold block mb-1">Sandi</label>
+                <input type="text" name="Sandi" required value={authForm.Sandi || ''} onChange={handleInputAuth} className="p-2.5 border rounded font-bold w-full outline-none focus:border-header1 bg-white" placeholder="123456" />
+              </div>
+              <div>
+                <label className="text-xs font-bold block mb-1">Role Utama</label>
+                <select name="Role" value={authForm.Role || 'Kasir'} onChange={handleInputAuth} className="p-2.5 border rounded text-sm font-bold w-full bg-white outline-none focus:border-header1">
+                  <option value="Superadmin">Superadmin</option>
+                  <option value="Admin">Admin</option>
+                  <option value="Kasir">Kasir</option>
+                </select>
+              </div>
+            </div>
+            
+            <div className="flex items-center gap-2 mt-1 p-3 bg-bgutama rounded-lg border border-footer2/20">
+              <input type="checkbox" name="Status_Aktif" checked={authForm.Status_Aktif === 'true'} onChange={handleCheckAuth} className="w-4 h-4 accent-header1 cursor-pointer" />
+              <span className="text-sm font-bold cursor-pointer" onClick={() => setAuthForm({...authForm, Status_Aktif: authForm.Status_Aktif === 'true' ? 'false' : 'true'})}>Akun Aktif (Bisa Login)</span>
+            </div>
+            
+            <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-footer2/10">
+              <button type="button" onClick={() => setShowAuthModal(false)} className="px-4 py-2 hover:bg-footer2/10 text-footer2 rounded-lg font-bold transition">Batal</button>
+              <button type="submit" className="px-6 py-2 bg-header1 hover:bg-header2 text-white rounded-lg font-bold shadow-md transition">Simpan</button>
+            </div>
+          </form>
+        </div>
+      )}
+
+      {/* =========================================
+          MODAL FORM DOMPET
+      ========================================= */}
       {showDompetModal && (
         <div className="absolute inset-0 bg-teksgelap/50 backdrop-blur-sm flex justify-center items-center p-4 z-50">
           <form onSubmit={handleSimpanDompet} className="bg-white p-6 rounded-2xl w-full max-w-md flex flex-col gap-4 shadow-2xl animate-[scaleIn_0.2s_ease-out]">
@@ -652,9 +791,21 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
               </div>
             </div>
             
-            <div>
-              <label className="text-xs font-bold block mb-1">Nama Dompet (Cth: Laci Kasir 1)</label>
-              <input type="text" name="nama_dompet" required value={dompetForm.nama_dompet || ''} onChange={handleInputDompet} className="p-3 border rounded font-bold w-full outline-none focus:border-header1 bg-bgutama" />
+            <div className="grid grid-cols-2 gap-3">
+              <div className="col-span-2 md:col-span-1">
+                <label className="text-xs font-bold block mb-1">Nama Dompet (Cth: Laci 1)</label>
+                <input type="text" name="nama_dompet" required value={dompetForm.nama_dompet || ''} onChange={handleInputDompet} className="p-2.5 border rounded font-bold w-full outline-none focus:border-header1 bg-bgutama" />
+              </div>
+              <div className="col-span-2 md:col-span-1">
+                <label className="text-xs font-bold block mb-1">Label / Pemilik</label>
+                <select name="label" value={dompetForm.label || 'Umum'} onChange={handleInputDompet} className="p-2.5 border rounded text-sm font-bold w-full bg-white outline-none focus:border-header1 text-header1">
+                  <option value="Umum">Umum (Semua Perangkat)</option>
+                  {/* Melakukan mapping daftar pengguna auth */}
+                  {authList.map((user, idx) => (
+                    <option key={idx} value={user.Email}>{user.Email}</option>
+                  ))}
+                </select>
+              </div>
             </div>
             
             <div>
@@ -662,12 +813,25 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
               <input type="number" name="saldo_aktif" required value={dompetForm.saldo_aktif || 0} onChange={handleInputDompet} className="p-3 border rounded font-black text-header1 w-full outline-none focus:border-header1 bg-header2/10" />
             </div>
             
-            <div className="flex items-center gap-2 mt-1 p-3 bg-bgutama rounded-lg border border-footer2/20">
-              <input type="checkbox" name="status_aktif" checked={dompetForm.status_aktif === 'true'} onChange={handleCheckDompet} className="w-4 h-4 accent-header1 cursor-pointer" />
-              <span className="text-sm font-bold cursor-pointer" onClick={() => setDompetForm({...dompetForm, status_aktif: dompetForm.status_aktif === 'true' ? 'false' : 'true'})}>Dompet Aktif (Muncul di Transaksi)</span>
+            {/* OPSI AKSES LANJUTAN */}
+            <div className="flex flex-col gap-2 mt-1 p-3 bg-bgutama rounded-lg border border-footer2/20">
+              <div className="flex items-center gap-2">
+                <input type="checkbox" name="status_aktif" checked={dompetForm.status_aktif === 'true'} onChange={handleCheckDompet} className="w-4 h-4 accent-header1 cursor-pointer" />
+                <span className="text-xs font-bold cursor-pointer" onClick={() => setDompetForm({...dompetForm, status_aktif: dompetForm.status_aktif === 'true' ? 'false' : 'true'})}>Dompet Aktif Digunakan</span>
+              </div>
+              
+              <div className="flex items-center gap-2">
+                <input type="checkbox" name="is_locked" checked={dompetForm.is_locked === 'true'} onChange={handleCheckDompet} className="w-4 h-4 accent-red-500 cursor-pointer" />
+                <span className="text-xs font-bold text-red-600 cursor-pointer" onClick={() => setDompetForm({...dompetForm, is_locked: dompetForm.is_locked === 'true' ? 'false' : 'true'})}>Kunci (Selain pemilik hanya bisa mutasi/transfer masuk)</span>
+              </div>
+
+              <div className="flex items-center gap-2">
+                <input type="checkbox" name="is_hidden" checked={dompetForm.is_hidden === 'true'} onChange={handleCheckDompet} className="w-4 h-4 accent-gray-500 cursor-pointer" />
+                <span className="text-xs font-bold text-gray-600 cursor-pointer" onClick={() => setDompetForm({...dompetForm, is_hidden: dompetForm.is_hidden === 'true' ? 'false' : 'true'})}>Sembunyikan dari list view perangkat lain</span>
+              </div>
             </div>
             
-            <div className="flex justify-end gap-2 mt-4 pt-4 border-t border-footer2/10">
+            <div className="flex justify-end gap-2 mt-2 pt-4 border-t border-footer2/10">
               <button type="button" onClick={() => setShowDompetModal(false)} className="px-4 py-2 hover:bg-footer2/10 text-footer2 rounded-lg font-bold transition">Batal</button>
               <button type="submit" className="px-6 py-2 bg-header1 hover:bg-header2 text-white rounded-lg font-bold shadow-md transition">Simpan</button>
             </div>
