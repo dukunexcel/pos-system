@@ -3,6 +3,7 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import ExcelJS from 'exceljs';
 import Swal from 'sweetalert2';
+import { Html5Qrcode } from 'html5-qrcode';
 
 const saveAs = require('file-saver') as (data: any, filename?: string, noAutoBom?: boolean) => void;
 declare const XLSX: any;
@@ -21,10 +22,13 @@ export default function Produk({ onClose }: { onClose: () => void }) {
   const [showMultiGudang, setShowMultiGudang] = useState(false);
   const [form, setForm] = useState<any>({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table'); // DEFAULT TABLE
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table');
   const [tipeHargaTampil, setTipeHargaTampil] = useState<string>('A');
   const [groupMode, setGroupMode] = useState<'none' | 'abjad' | 'kategori'>('none');
   const [openAccordions, setOpenAccordions] = useState<Set<string>>(new Set());
+  
+  // State untuk scanner
+  const [isModalScanner, setIsModalScanner] = useState(false);
   
   // State untuk lazy load
   const [totalCount, setTotalCount] = useState(0);
@@ -38,6 +42,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
   const currentBatchRef = useRef(0);
   const totalBatchesRef = useRef(0);
   const isSearchingRef = useRef(false);
+  const scannerRef = useRef<Html5Qrcode | null>(null);
 
   // Fetch data dengan hybrid lazy load
   const fetchData = useCallback(async () => {
@@ -62,9 +67,8 @@ export default function Produk({ onClose }: { onClose: () => void }) {
         setLoadedCount(dataProd.data.length);
         currentBatchRef.current = 1;
         totalBatchesRef.current = Math.ceil(dataProd.total / batchSize);
-        setVisibleCount(30); // Reset visible count
+        setVisibleCount(30);
         
-        // Mulai progressive loading jika masih ada data
         if (dataProd.data.length < dataProd.total) {
           startProgressiveLoading();
         }
@@ -151,13 +155,56 @@ export default function Produk({ onClose }: { onClose: () => void }) {
   const handleSearchChange = (e: React.ChangeEvent<HTMLInputElement>) => {
     isSearchingRef.current = e.target.value.trim() !== '';
     setSearchQuery(e.target.value);
-    setVisibleCount(30); // Reset display count saat search
+    setVisibleCount(30);
   };
 
   const clearSearch = () => {
     isSearchingRef.current = false;
     setSearchQuery('');
     setVisibleCount(30);
+  };
+
+  // Scanner functions - mengikuti pola kasir
+  const bukaScanner = () => {
+    setIsModalScanner(true);
+    setTimeout(() => {
+      if (!scannerRef.current) scannerRef.current = new Html5Qrcode("reader-camera");
+      scannerRef.current.start(
+        { facingMode: "environment" }, 
+        { fps: 10, qrbox: { width: 250, height: 250 } },
+        (decodedText) => {
+          tutupScanner();
+          setForm((prev: any) => ({ ...prev, qr: decodedText }));
+          
+          // Check if product exists
+          const existingProduct = produkList.find(p => p.qr === decodedText);
+          if (existingProduct) {
+            Swal.fire({
+              icon: 'info',
+              title: 'Produk Sudah Ada',
+              text: `QR Code "${decodedText}" sudah terdaftar untuk produk "${existingProduct.nama_barang}"`,
+              confirmButtonText: 'OK'
+            });
+          } else {
+            Toast.fire({
+              icon: 'success',
+              title: `QR Code terdeteksi: ${decodedText}`
+            });
+          }
+        }, 
+        (err) => {}
+      ).catch(() => { 
+        tutupScanner(); 
+        Swal.fire('Error', 'Gagal akses kamera', 'error'); 
+      });
+    }, 200);
+  };
+
+  const tutupScanner = () => {
+    setIsModalScanner(false);
+    if (scannerRef.current && scannerRef.current.isScanning) {
+      scannerRef.current.stop().catch(() => {});
+    }
   };
 
   // CRUD Functions
@@ -568,7 +615,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     );
   };
 
-  // Lazy Load Controls Component (Selalu tampil)
+  // Lazy Load Controls Component
   const renderLazyLoadControls = () => (
     <div className="flex flex-col sm:flex-row justify-between items-center px-4 py-3 border-t border-footer2/20 bg-bgutama gap-2">
       <div className="text-xs text-footer2">
@@ -698,7 +745,6 @@ export default function Produk({ onClose }: { onClose: () => void }) {
             <div className="overflow-x-auto">
               {renderTableProduk()}
             </div>
-            {/* Lazy Load Controls selalu tampil di tabel */}
             {renderLazyLoadControls()}
           </div>
         )}
@@ -724,10 +770,19 @@ export default function Produk({ onClose }: { onClose: () => void }) {
                     className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1 font-semibold uppercase" />
                 </div>
                 {!isEdit && (
-                  <button type="button" onClick={() => setForm({ ...form, qr: `BRG-${Date.now().toString().slice(-5)}` })}
-                    className="bg-header2/20 text-header1 hover:bg-header2 hover:text-white px-3 py-2.5 rounded-lg text-sm font-bold transition">
-                    Auto
-                  </button>
+                  <>
+                    <button type="button" onClick={() => setForm({ ...form, qr: `BRG-${Date.now().toString().slice(-5)}` })}
+                      className="bg-header2/20 text-header1 hover:bg-header2 hover:text-white px-3 py-2.5 rounded-lg text-sm font-bold transition">
+                      Auto
+                    </button>
+                    <button type="button" onClick={bukaScanner}
+                      className="bg-aksen/20 text-aksen hover:bg-aksen hover:text-white px-3 py-2.5 rounded-lg text-sm font-bold transition flex items-center gap-1">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M3 9V7a2 2 0 012-2h.5a2 2 0 001.7-.9l.8-1.2a2 2 0 011.7-.9h3a2 2 0 011.7.9l.8 1.2a2 2 0 001.7.9H17a2 2 0 012 2v2M3 9v10a2 2 0 002 2h14a2 2 0 002-2V9M3 9h18M7 13l2 2 4-4"></path>
+                      </svg>
+                      Scan
+                    </button>
+                  </>
                 )}
               </div>
               
@@ -843,6 +898,28 @@ export default function Produk({ onClose }: { onClose: () => void }) {
                 </button>
               </div>
             </form>
+          </div>
+        </div>
+      )}
+
+      {/* Modal Scanner - Terpisah */}
+      {isModalScanner && (
+        <div className="fixed inset-0 z-[70] bg-black/60 backdrop-blur-sm flex items-center justify-center p-4">
+          <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full overflow-hidden">
+            <div className="p-4 border-b border-footer2/20 flex justify-between items-center">
+              <h4 className="font-bold text-header1">Scan QR Code / Barcode</h4>
+              <button onClick={tutupScanner} className="text-gray-400 hover:text-aksen transition">
+                <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                </svg>
+              </button>
+            </div>
+            <div className="p-4">
+              <div id="reader-camera" className="w-full"></div>
+              <p className="text-xs text-footer2 text-center mt-3">
+                Arahkan kamera ke QR Code atau Barcode produk
+              </p>
+            </div>
           </div>
         </div>
       )}
