@@ -4,7 +4,6 @@ import { useState, useEffect, useRef } from 'react';
 import ExcelJS from 'exceljs';
 import Swal from 'sweetalert2';
 
-// file-saver is untyped in this project, so avoid module augmentation for the default import.
 const saveAs = require('file-saver') as (
   data: any,
   filename?: string,
@@ -37,11 +36,10 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
   const [progressiveLoading, setProgressiveLoading] = useState(false);
   const [loadedCount, setLoadedCount] = useState(0);
   
-  // Refs untuk progressive loading
   const currentBatchRef = useRef(0);
   const totalBatchesRef = useRef(0);
   const isSearchingRef = useRef(false);
-  const batchSize = 100; // Load 100 data per batch
+  const batchSize = 100;
   
   const [showModal, setShowModal] = useState(false);
   const [showDetailModal, setShowDetailModal] = useState(false);
@@ -66,7 +64,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
   const fetchInitialData = async () => {
     setLoading(true);
     try {
-      // Ambil batch pertama + total count
       const res = await fetch(`/api/pelanggan?page=1&limit=${batchSize}`);
       const data = await res.json();
       
@@ -99,10 +96,9 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
     setProgressiveLoading(true);
     
     for (let page = 2; page <= totalBatchesRef.current; page++) {
-      // Jeda jika user sedang search agar tidak mengganggu performa
       if (isSearchingRef.current) {
         await new Promise(resolve => setTimeout(resolve, 1000));
-        page--; // Retry batch ini nanti
+        page--;
         continue;
       }
       
@@ -112,11 +108,9 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
         
         if (data.status === 'sukses') {
           setPelangganList(prev => {
-            // Hindari duplikasi data
             const existingIds = new Set(prev.map(p => p.id_pelanggan));
             const newData = data.data.filter((p: PelangganData) => !existingIds.has(p.id_pelanggan));
             
-            // Update tipe unik juga
             if (newData.length > 0) {
               setUnikTipe(prevTypes => {
                 const newTypes = newData
@@ -132,12 +126,10 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
           setLoadedCount(prev => prev + data.data.length);
           currentBatchRef.current = page;
           
-          // Beri jeda kecil agar tidak membebani network
           await new Promise(resolve => setTimeout(resolve, 200));
         }
       } catch (err) {
         console.error(`Error loading batch ${page}:`, err);
-        // Retry sekali jika gagal
         page--;
         await new Promise(resolve => setTimeout(resolve, 2000));
       }
@@ -172,7 +164,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('DataPelanggan');
 
-      // 1. Tentukan Struktur Kolom (Baris 1)
       worksheet.columns = [
         { header: 'id_pelanggan', key: 'id', width: 15 },
         { header: 'tipe', key: 'tipe', width: 12 },
@@ -186,7 +177,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
         { header: 'foto', key: 'foto', width: 30 }
       ];
 
-      // 2. Beri Styling pada Header agar Elegan
       const headerRow = worksheet.getRow(1);
       headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
       headerRow.fill = { 
@@ -197,18 +187,15 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
       headerRow.alignment = { vertical: 'middle', horizontal: 'center', wrapText: true };
       headerRow.height = 30;
 
-      // 3. Kunci Seluruh Sheet dengan Password
       await worksheet.protect('rahasia', {
         selectLockedCells: true,
         selectUnlockedCells: true,
       });
 
-      // 4. Buka Kunci (Unlock) untuk Baris 2 hingga 1000 agar bisa diisi data
       for (let i = 2; i <= 1000; i++) {
         const row = worksheet.getRow(i);
         row.protection = { locked: false };
         
-        // Validasi untuk kolom tipe
         row.getCell('tipe').dataValidation = {
           type: 'list',
           allowBlank: true,
@@ -218,7 +205,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
           error: 'Pilih tipe pelanggan yang sesuai'
         };
         
-        // Format angka untuk kolom numerik
         const numericColumns = ['saldo', 'piutang', 'poin', 'nominal'];
         
         numericColumns.forEach(key => {
@@ -227,12 +213,10 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
           cell.alignment = { horizontal: 'right' };
         });
         
-        // Format khusus untuk saldo dan piutang (dengan 2 desimal)
         row.getCell('saldo').numFmt = '#,##0.00';
         row.getCell('piutang').numFmt = '#,##0.00';
       }
 
-      // 5. Tambahkan Contoh Data di Baris 2
       const row2 = worksheet.addRow({
         id: 'PLG-001',
         tipe: 'Personal',
@@ -250,7 +234,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
       row2.getCell(1).note = 'Contoh data - silakan hapus';
       row2.getCell(10).note = 'Isi dengan URL foto atau link Google Drive';
 
-      // 6. Proses Download
       const buffer = await workbook.xlsx.writeBuffer();
       saveAs(new Blob([buffer]), 'Template_Pelanggan.xlsx');
       
@@ -270,7 +253,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Reset input agar bisa upload file yang sama berulang kali
     e.target.value = null;
 
     const reader = new FileReader();
@@ -280,7 +262,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.load(buffer);
         
-        // Ambil sheet pertama
         const worksheet = workbook.worksheets[0];
         if (!worksheet) {
           Swal.fire('Error', 'Tidak ada data di dalam file Excel', 'error');
@@ -290,14 +271,12 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
         const jsonData: any[] = [];
         const headers: string[] = [];
 
-        // Ambil nama kolom (Header) dari Baris 1
         worksheet.getRow(1).eachCell((cell, colNumber) => {
           headers[colNumber] = cell.text || cell.value?.toString() || '';
         });
 
-        // Iterasi Baris 2 ke bawah untuk mengambil data
         worksheet.eachRow((row, rowNumber) => {
-          if (rowNumber === 1) return; // Lewati baris judul
+          if (rowNumber === 1) return;
           
           let rowData: any = {};
           let isRowEmpty = true;
@@ -305,12 +284,10 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
           row.eachCell((cell, colNumber) => {
             const header = headers[colNumber];
             if (header) {
-              // Untuk kolom numerik, ambil value asli (bukan text)
               const numericColumns = ['saldo', 'piutang', 'poin_pembelian', 'nominal_pembelian'];
               
               let cellValue;
               if (numericColumns.includes(header) && cell.value !== null && cell.value !== undefined) {
-                // Jika nilai numerik, konversi ke number
                 cellValue = Number(cell.value) || 0;
               } else {
                 cellValue = cell.text || cell.value?.toString() || '';
@@ -321,7 +298,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
             }
           });
 
-          // Hanya masukkan baris yang benar-benar ada isinya
           if (!isRowEmpty) {
             jsonData.push(rowData);
           }
@@ -332,17 +308,14 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
           return;
         }
 
-        // Validasi kolom wajib (NOT NULL) sesuai struktur database
         const missingMandatory = jsonData.some(row => !row.id_pelanggan || !row.nama);
         if (missingMandatory) {
           Swal.fire('Error', 'Kolom id_pelanggan dan nama wajib diisi di semua baris!', 'error');
           return;
         }
 
-        // Validasi format nomor WA
         const invalidPhone = jsonData.some(row => {
           if (row.wa && row.wa.trim() !== '') {
-            // Hanya terima angka, minimal 10 digit, maksimal 15 digit
             const phoneRegex = /^[0-9]{10,15}$/;
             return !phoneRegex.test(row.wa.trim());
           }
@@ -366,7 +339,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
           }
         }
 
-        // Validasi format numerik
         const numericColumns = ['saldo', 'piutang', 'poin_pembelian', 'nominal_pembelian'];
         
         const invalidNumeric = jsonData.some(row => {
@@ -395,7 +367,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
           }
         }
 
-        // Jika validasi lolos, langsung proses
         await processUpload(jsonData);
 
       } catch (err: any) {
@@ -403,7 +374,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
       }
     };
     
-    // Gunakan readAsArrayBuffer karena ExcelJS membacanya sebagai buffer
     reader.readAsArrayBuffer(file);
   };
 
@@ -416,7 +386,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
     });
 
     try {
-      // Kirim ke API Endpoint (sesuaikan dengan endpoint pelanggan Anda)
       const res = await fetch('/api/pelanggan/bulk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -426,7 +395,7 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
       const result = await res.json();
       if (result.status === 'sukses') {
         Swal.fire('Berhasil', `${jsonData.length} data pelanggan ditambahkan!`, 'success');
-        fetchInitialData(); // Panggil fungsi refresh state Anda
+        fetchInitialData();
       } else {
         throw new Error(result.pesan || 'Gagal menyimpan ke database');
       }
@@ -445,7 +414,6 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
       setForm(pelanggan);
       setIsEdit(true);
     } else {
-      // Buat ID unik sementara berdasarkan timestamp untuk pendaftaran baru
       const newId = `PLG-${Date.now().toString().slice(-6)}`;
       setForm({ 
         id_pelanggan: newId, 
@@ -545,7 +513,7 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
   };
 
   const handleHapus = async (id: string, nama: string) => {
-    Swal.fire({
+    const result = await Swal.fire({
       title: 'Hapus Pelanggan?',
       text: `Hapus "${nama}" (${id})?`,
       icon: 'warning',
@@ -554,23 +522,23 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
       cancelButtonColor: 'var(--color-footer2)',
       confirmButtonText: 'Ya, Hapus',
       cancelButtonText: 'Batal'
-    }).then(async (result) => {
-      if (result.isConfirmed) {
-        try {
-          const res = await fetch(`/api/pelanggan?id=${id}`, { method: 'DELETE' });
-          const data = await res.json();
-          if (data.status === 'sukses') {
-            Toast.fire({ icon: 'success', title: 'Pelanggan Terhapus!' });
-            closeDetailModal();
-            fetchInitialData();
-          } else {
-            Swal.fire('Gagal', data.pesan || 'Gagal menghapus', 'error');
-          }
-        } catch (err) {
-          Swal.fire('Error', 'Terjadi kesalahan', 'error');
-        }
-      }
     });
+    
+    if (!result.isConfirmed) return;
+    
+    try {
+      const res = await fetch(`/api/pelanggan?id=${id}`, { method: 'DELETE' });
+      const data = await res.json();
+      if (data.status === 'sukses') {
+        Toast.fire({ icon: 'success', title: 'Pelanggan Terhapus!' });
+        closeDetailModal();
+        fetchInitialData();
+      } else {
+        Swal.fire('Gagal', data.pesan || 'Gagal menghapus', 'error');
+      }
+    } catch (err) {
+      Swal.fire('Error', 'Terjadi kesalahan', 'error');
+    }
   };
 
   const loadMore = () => {
@@ -615,6 +583,39 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
     }
     return 'bg-bgutama text-teksgelap';
   };
+
+// === Reusable Lazy Load Controls (PERSIS dengan Produk) ===
+const renderLazyLoadControls = () => (
+  <div className="flex flex-col sm:flex-row justify-between items-center px-4 py-3 border-t border-footer2/20 bg-bgutama gap-2">
+    <div className="text-xs text-footer2">
+      Menampilkan <span className="font-bold">{displayedList.length}</span> dari <span className="font-bold">{filteredList.length}</span> pelanggan
+      {progressiveLoading && (
+        <span className="ml-2 text-header1">
+          (Loading: {loadedCount}/{totalCount})
+        </span>
+      )}
+    </div>
+    <div className="flex items-center gap-2">
+      <select 
+        onChange={changeLimit}
+        className="text-xs border border-footer2/30 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-header1"
+        value={visibleCount}
+      >
+        <option value="30">30 per halaman</option>
+        <option value="50">50 per halaman</option>
+        <option value="100">100 per halaman</option>
+        <option value="200">200 per halaman</option>
+      </select>
+      <button 
+        onClick={loadMore}
+        disabled={!hasMoreData || isLoadingMore}
+        className="bg-header2 hover:bg-header1 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition disabled:opacity-50 disabled:cursor-not-allowed"
+      >
+        {isLoadingMore ? 'Memuat...' : hasMoreData ? 'Load More' : 'Semua data dimuat'}
+      </button>
+    </div>
+  </div>
+);
 
   return (
     <div className="h-full flex flex-col bg-bgutama animate-[fadeIn_0.3s_ease-in-out]">
@@ -727,67 +728,71 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
             <div className="animate-spin rounded-full h-10 w-10 border-4 border-header2 border-t-transparent"></div>
           </div>
         ) : viewMode === 'grid' ? (
-          /* TAMPILAN GRID */
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4">
-            {displayedList.length === 0 ? (
-              <p className="text-footer2 italic text-sm col-span-full text-center py-8">
-                {searchQuery ? `Tidak ada pelanggan yang cocok dengan "${searchQuery}"` : 'Belum ada pelanggan terdaftar.'}
-              </p>
-            ) : (
-              displayedList.map((p, i) => (
-                <div 
-                  key={i} 
-                  className="bg-white border border-footer2/20 rounded-lg p-3 flex flex-col items-center shadow-sm hover:shadow-md transition relative group cursor-pointer"
-                  onClick={() => openDetailModal(p)}
-                >
-                  <div className={`absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${getTipeBadgeColor(p.tipe)}`}>
-                    {p.tipe}
-                  </div>
-                  
-                  <div className="mb-2 mt-1">
-                    {p.foto ? (
-                      <img src={p.foto} className="w-12 h-12 rounded-full object-cover border-2 border-footer2/20" alt={p.nama} />
-                    ) : (
-                      <div className="w-12 h-12 rounded-full bg-bgutama border-2 border-footer2/20 flex items-center justify-center">
-                        <span className="text-sm font-bold text-header1">{getInitials(p.nama)}</span>
+          <>
+            {/* TAMPILAN GRID */}
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3 md:gap-4">
+              {displayedList.length === 0 ? (
+                <p className="text-footer2 italic text-sm col-span-full text-center py-8">
+                  {searchQuery ? `Tidak ada pelanggan yang cocok dengan "${searchQuery}"` : 'Belum ada pelanggan terdaftar.'}
+                </p>
+              ) : (
+                displayedList.map((p, i) => (
+                  <div 
+                    key={i} 
+                    className="bg-white border border-footer2/20 rounded-lg p-3 flex flex-col items-center shadow-sm hover:shadow-md transition relative group cursor-pointer"
+                    onClick={() => openDetailModal(p)}
+                  >
+                    <div className={`absolute top-2 right-2 px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider ${getTipeBadgeColor(p.tipe)}`}>
+                      {p.tipe}
+                    </div>
+                    
+                    <div className="mb-2 mt-1">
+                      {p.foto ? (
+                        <img src={p.foto} className="w-12 h-12 rounded-full object-cover border-2 border-footer2/20" alt={p.nama} />
+                      ) : (
+                        <div className="w-12 h-12 rounded-full bg-bgutama border-2 border-footer2/20 flex items-center justify-center">
+                          <span className="text-sm font-bold text-header1">{getInitials(p.nama)}</span>
+                        </div>
+                      )}
+                    </div>
+                    
+                    <h4 className="font-bold text-teksgelap line-clamp-1 text-sm w-full text-center truncate">
+                      {p.nama}
+                    </h4>
+                    <p className="text-[10px] text-footer2 font-semibold font-mono mt-0.5">{p.id_pelanggan}</p>
+                    
+                    <div className="w-full mt-2 pt-2 border-t border-footer2/10 space-y-1">
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-footer2">Saldo:</span>
+                        <span className="text-[10px] font-bold text-header2">Rp {p.saldo?.toLocaleString('id-ID')}</span>
                       </div>
-                    )}
-                  </div>
-                  
-                  <h4 className="font-bold text-teksgelap line-clamp-1 text-sm w-full text-center truncate">
-                    {p.nama}
-                  </h4>
-                  <p className="text-[10px] text-footer2 font-semibold font-mono mt-0.5">{p.id_pelanggan}</p>
-                  
-                  <div className="w-full mt-2 pt-2 border-t border-footer2/10 space-y-1">
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] text-footer2">Saldo:</span>
-                      <span className="text-[10px] font-bold text-header2">Rp {p.saldo?.toLocaleString('id-ID')}</span>
+                      <div className="flex justify-between items-center">
+                        <span className="text-[10px] text-footer2">Piutang:</span>
+                        <span className="text-[10px] font-bold text-aksen">Rp {p.piutang?.toLocaleString('id-ID')}</span>
+                      </div>
                     </div>
-                    <div className="flex justify-between items-center">
-                      <span className="text-[10px] text-footer2">Piutang:</span>
-                      <span className="text-[10px] font-bold text-aksen">Rp {p.piutang?.toLocaleString('id-ID')}</span>
+                    
+                    <div className="flex gap-1.5 w-full mt-2 pt-2 border-t border-footer2/10" onClick={(e) => e.stopPropagation()}>
+                      <button 
+                        onClick={() => openModal(p)} 
+                        className="flex-1 bg-header2/10 hover:bg-header2 text-header1 hover:text-white text-[10px] font-bold py-1.5 rounded transition"
+                      >
+                        Edit
+                      </button>
+                      <button 
+                        onClick={() => handleHapus(p.id_pelanggan, p.nama)} 
+                        className="flex-1 bg-aksen/10 hover:bg-aksen text-aksen hover:text-white text-[10px] font-bold py-1.5 rounded transition"
+                      >
+                        Hapus
+                      </button>
                     </div>
                   </div>
-                  
-                  <div className="flex gap-1.5 w-full mt-2 pt-2 border-t border-footer2/10" onClick={(e) => e.stopPropagation()}>
-                    <button 
-                      onClick={() => openModal(p)} 
-                      className="flex-1 bg-header2/10 hover:bg-header2 text-header1 hover:text-white text-[10px] font-bold py-1.5 rounded transition"
-                    >
-                      Edit
-                    </button>
-                    <button 
-                      onClick={() => handleHapus(p.id_pelanggan, p.nama)} 
-                      className="flex-1 bg-aksen/10 hover:bg-aksen text-aksen hover:text-white text-[10px] font-bold py-1.5 rounded transition"
-                    >
-                      Hapus
-                    </button>
-                  </div>
-                </div>
-              ))
-            )}
-          </div>
+                ))
+              )}
+            </div>
+            {/* Lazy Load Controls untuk Grid */}
+            {renderLazyLoadControls()}
+          </>
         ) : (
           /* TAMPILAN TABEL */
           <div className="bg-white rounded-xl shadow-sm overflow-hidden border border-footer2/20">
@@ -863,31 +868,8 @@ export default function Pelanggan({ onClose }: { onClose: () => void }) {
               </table>
             </div>
             
-            {/* Lazy Load Controls */}
-            <div className="flex flex-col sm:flex-row justify-between items-center px-4 py-3 border-t border-footer2/20 bg-bgutama gap-3">
-              <div className="text-xs text-footer2">
-                Menampilkan <span>{displayedList.length}</span> dari <span>{totalCount}</span> pelanggan
-              </div>
-              <div className="flex flex-wrap items-center gap-2">
-                <select 
-                  onChange={changeLimit}
-                  className="text-sm border border-footer2/30 rounded-lg px-3 py-1.5 bg-white focus:outline-none focus:border-header1"
-                  value={visibleCount}
-                >
-                  <option value="30">30 per halaman</option>
-                  <option value="50">50 per halaman</option>
-                  <option value="100">100 per halaman</option>
-                  <option value="200">200 per halaman</option>
-                </select>
-                <button 
-                  onClick={loadMore}
-                  disabled={!hasMoreData || isLoadingMore}
-                  className="bg-header2 hover:bg-header1 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition disabled:opacity-50 disabled:cursor-not-allowed"
-                >
-                  {isLoadingMore ? 'Memuat...' : hasMoreData ? 'Load More' : 'Semua data dimuat'}
-                </button>
-              </div>
-            </div>
+            {/* Lazy Load Controls untuk Table */}
+            {renderLazyLoadControls()}
           </div>
         )}
       </main>

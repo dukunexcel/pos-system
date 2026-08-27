@@ -21,7 +21,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
   const [showMultiGudang, setShowMultiGudang] = useState(false);
   const [form, setForm] = useState<any>({});
   const [searchQuery, setSearchQuery] = useState('');
-  const [viewMode, setViewMode] = useState<'grid' | 'table'>('grid');
+  const [viewMode, setViewMode] = useState<'grid' | 'table'>('table'); // DEFAULT TABLE
   const [tipeHargaTampil, setTipeHargaTampil] = useState<string>('A');
   const [groupMode, setGroupMode] = useState<'none' | 'abjad' | 'kategori'>('none');
   const [openAccordions, setOpenAccordions] = useState<Set<string>>(new Set());
@@ -234,7 +234,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     }
   };
 
-  // Excel Functions (dipertahankan sama)
+  // Excel Functions
   const handleDownloadTemplate = async () => {
     try {
       const workbook = new ExcelJS.Workbook();
@@ -568,6 +568,40 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     );
   };
 
+  // Lazy Load Controls Component (Selalu tampil)
+  const renderLazyLoadControls = () => (
+    <div className="flex flex-col sm:flex-row justify-between items-center px-4 py-3 border-t border-footer2/20 bg-bgutama gap-2">
+      <div className="text-xs text-footer2">
+        Menampilkan <span className="font-bold">{displayedProduk.length}</span> dari <span className="font-bold">{filteredProduk.length}</span> produk
+        {progressiveLoading && (
+          <span className="ml-2 text-header1">
+            (Loading: {loadedCount}/{totalCount})
+          </span>
+        )}
+      </div>
+      <div className="flex items-center gap-2">
+        <select 
+          onChange={changeLimit}
+          value={visibleCount}
+          className="text-xs border border-footer2/30 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-header1"
+        >
+          <option value="30">30 per halaman</option>
+          <option value="50">50 per halaman</option>
+          <option value="100">100 per halaman</option>
+          <option value="200">200 per halaman</option>
+        </select>
+        
+        <button 
+          onClick={loadMore}
+          disabled={!hasMoreDisplay || isLoadingMore}
+          className="bg-header2 hover:bg-header1 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {isLoadingMore ? 'Memuat...' : hasMoreDisplay ? 'Load More' : 'Semua ditampilkan'}
+        </button>
+      </div>
+    </div>
+  );
+
   return (
     <div className="h-full flex flex-col bg-bgutama animate-[fadeIn_0.3s_ease-in-out]">
       {/* Header */}
@@ -657,81 +691,20 @@ export default function Produk({ onClose }: { onClose: () => void }) {
         {viewMode === 'grid' ? (
           <>
             {renderGridProduk()}
-            
-            {/* LAZY LOAD CONTROLS - INI YANG DITAMBAHKAN */}
-            {!loading && displayedProduk.length > 0 && (
-              <div className="mt-4 bg-white rounded-lg border border-footer2/20 p-3">
-                <div className="flex flex-col sm:flex-row justify-between items-center gap-2">
-                  <div className="text-xs text-footer2">
-                    Menampilkan <span className="font-bold">{displayedProduk.length}</span> dari <span className="font-bold">{filteredProduk.length}</span> produk
-                    {progressiveLoading && (
-                      <span className="ml-2 text-header1">
-                        (Loading: {loadedCount}/{totalCount})
-                      </span>
-                    )}
-                  </div>
-                  
-                  <div className="flex items-center gap-2">
-                    <select 
-                      onChange={changeLimit}
-                      value={visibleCount}
-                      className="text-xs border border-footer2/30 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-header1"
-                    >
-                      <option value="30">30 per halaman</option>
-                      <option value="50">50 per halaman</option>
-                      <option value="100">100 per halaman</option>
-                      <option value="200">200 per halaman</option>
-                    </select>
-                    
-                    <button 
-                      onClick={loadMore}
-                      disabled={!hasMoreDisplay || isLoadingMore}
-                      className="bg-header2 hover:bg-header1 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition disabled:opacity-50 disabled:cursor-not-allowed"
-                    >
-                      {isLoadingMore ? 'Memuat...' : hasMoreDisplay ? 'Load More' : 'Semua ditampilkan'}
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
+            {!loading && renderLazyLoadControls()}
           </>
         ) : (
           <div className="bg-white rounded-xl shadow-sm border border-footer2/20 overflow-hidden">
-            <div className="overflow-x-auto">{renderTableProduk()}</div>
-            
-            {/* LAZY LOAD CONTROLS - UNTUK TABLE */}
-            {!loading && displayedProduk.length > 0 && (
-              <div className="flex flex-col sm:flex-row justify-between items-center px-4 py-3 border-t border-footer2/20 bg-bgutama gap-2">
-                <div className="text-xs text-footer2">
-                  Menampilkan <span className="font-bold">{displayedProduk.length}</span> dari <span className="font-bold">{filteredProduk.length}</span> produk
-                </div>
-                <div className="flex items-center gap-2">
-                  <select 
-                    onChange={changeLimit}
-                    value={visibleCount}
-                    className="text-xs border border-footer2/30 rounded-lg px-2 py-1.5 bg-white focus:outline-none focus:border-header1"
-                  >
-                    <option value="30">30 per halaman</option>
-                    <option value="50">50 per halaman</option>
-                    <option value="100">100 per halaman</option>
-                    <option value="200">200 per halaman</option>
-                  </select>
-                  
-                  <button 
-                    onClick={loadMore}
-                    disabled={!hasMoreDisplay || isLoadingMore}
-                    className="bg-header2 hover:bg-header1 text-white px-4 py-1.5 rounded-lg text-sm font-bold transition disabled:opacity-50 disabled:cursor-not-allowed"
-                  >
-                    {isLoadingMore ? 'Memuat...' : hasMoreDisplay ? 'Load More' : 'Semua ditampilkan'}
-                  </button>
-                </div>
-              </div>
-            )}
+            <div className="overflow-x-auto">
+              {renderTableProduk()}
+            </div>
+            {/* Lazy Load Controls selalu tampil di tabel */}
+            {renderLazyLoadControls()}
           </div>
         )}
       </main>
 
-      {/* Modal Form - TIDAK BERUBAH */}
+      {/* Modal Form */}
       {showModal && (
         <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center">
           <div className="bg-white w-full md:w-[95%] md:max-w-lg max-h-[90vh] overflow-y-auto rounded-t-3xl md:rounded-2xl shadow-2xl p-6 relative">
@@ -744,7 +717,6 @@ export default function Produk({ onClose }: { onClose: () => void }) {
             <h3 className="text-xl font-bold text-header1 mb-4">{isEdit ? 'Edit Data Produk' : 'Tambah Produk Baru'}</h3>
             
             <form onSubmit={handleSimpan} className="flex flex-col gap-3">
-              {/* Form content sama seperti sebelumnya */}
               <div className="flex items-end gap-2">
                 <div className="flex-1">
                   <label className="text-xs font-bold text-footer2">Kode QR / Barcode</label>
