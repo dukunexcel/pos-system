@@ -174,6 +174,16 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     return () => document.removeEventListener('keydown', handleKeyDown);
   }, [isModalInisialisasi, isModalScanner, isModeGrid, keranjangPos, currentKasir, currentPelanggan]);
 
+  useEffect(() => {
+    if (gridGroupMode === 'none' && !isLoadingProduk) {
+      setOpenAccordions(prev => {
+        const newSet = new Set(prev);
+        newSet.add('semua');
+        return newSet;
+      });
+    }
+  }, [gridGroupMode, isLoadingProduk]);
+
   const lewatiInisialisasi = () => {
     setCurrentKasir({ 
         id_karyawan: '', 
@@ -1631,7 +1641,7 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
             {/* MODE 2: SENTUH */}
             {isModeGrid && (
               <div className="bg-white rounded-xl shadow-sm border border-footer2/20 flex flex-col flex-1 min-h-0 overflow-hidden">
-                <div className="p-3 border-b border-footer2/20 bg-bgutama/50 shrink-0 flex gap-2 items-center">
+                <div className="p-3 border-b border-footer2/20 bg-bgutama/50 shrink-0 flex gap-2 items-center flex-wrap">
                   <button 
                     onClick={bukaScanner}
                     className="bg-header1 text-white p-3 rounded-lg hover:bg-header2 transition shadow-sm shrink-0"
@@ -1685,7 +1695,7 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                   <select 
                     value={gridGroupMode}
                     onChange={(e) => setGridGroupMode(e.target.value as any)}
-                    className="p-3 rounded-lg border border-footer2/40 bg-white text-sm focus:outline-none text-footer2 cursor-pointer font-bold w-24 shrink-0"
+                    className="p-3 rounded-lg border border-footer2/40 bg-white text-sm focus:outline-none text-footer2 cursor-pointer font-bold w-28 shrink-0"
                   >
                     <option value="none">Semua</option>
                     <option value="kategori">Kategori</option>
@@ -1704,79 +1714,363 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                     ) : (
                       <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path>
-                        </svg>
-                      )}
+                      </svg>
+                    )}
                   </button>
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-3 min-h-0">
                   {isLoadingProduk && (
                     <div className="text-center py-4 text-footer2">
+                      <div className="animate-spin inline-block w-8 h-8 border-4 border-header1 border-t-transparent rounded-full mb-2"></div>
                       <p>Memuat produk...</p>
                     </div>
                   )}
                   
-                  {gridGroupMode === 'none' && (
-                    <div className={viewModeGrid === 'grid' ? 'grid grid-cols-2 lg:grid-cols-3 gap-2' : 'flex flex-col gap-2'}>
-                      {katalogPos
-                        .filter(p => 
-                          p.nama_barang?.toLowerCase().includes(searchGrid.toLowerCase()) || 
-                          p.qr?.toLowerCase().includes(searchGrid.toLowerCase())
-                        )
-                        .map(p => {
-                          const hrg = getHargaByTipe(p, tipeHargaAktif);
-                          const vs = getVirtualStock(p.qr);
-                          if (!isGridReturMode && vs.total <= 0) return null;
-                          
-                          const cardStyle = isGridReturMode 
-                            ? 'bg-aksen/5 border-aksen/40 hover:border-aksen' 
-                            : 'bg-white border-footer2/30 hover:border-header1/50';
-                          
-                          if (viewModeGrid === 'grid') {
-                            return (
-                              <div 
-                                key={p.qr} 
-                                onClick={() => tambahDariGrid(p.qr)}
-                                className={`${cardStyle} border rounded-lg p-3 shadow-sm cursor-pointer hover:shadow-md transition flex flex-col justify-between active:scale-95`}
-                              >
-                                <div className="mb-2">
-                                  <div className="flex gap-1 flex-wrap mb-1">
-                                    <span className="text-[10px] font-bold bg-bgutama text-footer2 px-2 py-0.5 rounded border border-footer2/20">
-                                      Stok: {vs.total}
-                                    </span>
-                                    <span className="text-[10px] font-bold bg-header1/10 text-header1 px-2 py-0.5 rounded border border-header1/20">
-                                      {getNamaTipe(tipeHargaAktif)}
-                                    </span>
+                  {/* TAMPILAN SEMUA PRODUK */}
+                  {gridGroupMode === 'none' && !isLoadingProduk && (
+                    <div>
+                      {/* Header dengan badge "Semua" */}
+                      <div className="mb-3 bg-bgutama/50 rounded-xl p-3 flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="bg-header1 text-white px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide">
+                            Semua Produk
+                          </span>
+                          <span className="text-footer2 text-xs font-bold">
+                            ({katalogPos.filter(p => 
+                              !searchGrid || 
+                              p.nama_barang?.toLowerCase().includes(searchGrid.toLowerCase()) || 
+                              p.qr?.toLowerCase().includes(searchGrid.toLowerCase())
+                            ).length} produk)
+                          </span>
+                        </div>
+                        
+                        {/* Toggle Expand/Collapse */}
+                        <button
+                          onClick={() => toggleAccordion('semua')}
+                          className="p-2 rounded-lg border border-footer2/30 bg-white hover:bg-bgutama transition"
+                          title={openAccordions.has('semua') ? 'Collapse' : 'Expand'}
+                        >
+                          <svg 
+                            className={`w-5 h-5 transition-transform ${openAccordions.has('semua') ? 'rotate-180' : ''}`} 
+                            fill="none" 
+                            stroke="currentColor" 
+                            viewBox="0 0 24 24"
+                          >
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                          </svg>
+                        </button>
+                      </div>
+                      
+                      {/* Konten Grid */}
+                      {openAccordions.has('semua') && (
+                        <div className={viewModeGrid === 'grid' ? 'grid grid-cols-2 lg:grid-cols-3 gap-2' : 'flex flex-col gap-2'}>
+                          {katalogPos
+                            .filter(p => 
+                              !searchGrid || 
+                              p.nama_barang?.toLowerCase().includes(searchGrid.toLowerCase()) || 
+                              p.qr?.toLowerCase().includes(searchGrid.toLowerCase())
+                            )
+                            .map(p => {
+                              const hrg = getHargaByTipe(p, tipeHargaAktif);
+                              const vs = getVirtualStock(p.qr);
+                              if (!isGridReturMode && vs.total <= 0) return null;
+                              
+                              const cardStyle = isGridReturMode 
+                                ? 'bg-aksen/5 border-aksen/40 hover:border-aksen' 
+                                : 'bg-white border-footer2/30 hover:border-header1/50';
+                              
+                              if (viewModeGrid === 'grid') {
+                                return (
+                                  <div 
+                                    key={p.qr} 
+                                    onClick={() => tambahDariGrid(p.qr)}
+                                    className={`${cardStyle} border rounded-lg p-3 shadow-sm cursor-pointer hover:shadow-md transition flex flex-col justify-between active:scale-95`}
+                                  >
+                                    <div className="mb-2">
+                                      <div className="flex gap-1 flex-wrap mb-1">
+                                        <span className="text-[10px] font-bold bg-bgutama text-footer2 px-2 py-0.5 rounded border border-footer2/20">
+                                          Stok: {vs.total}
+                                        </span>
+                                        <span className="text-[10px] font-bold bg-header1/10 text-header1 px-2 py-0.5 rounded border border-header1/20">
+                                          {getNamaTipe(tipeHargaAktif)}
+                                        </span>
+                                      </div>
+                                      <h4 className="font-bold text-teksgelap text-sm leading-tight line-clamp-2">{p.nama_barang}</h4>
+                                    </div>
+                                    <p className={`font-black text-base ${isGridReturMode ? 'text-aksen' : 'text-header1'}`}>
+                                      {isGridReturMode ? '-' : ''}Rp {hrg.toLocaleString('id-ID')}
+                                    </p>
                                   </div>
-                                  <h4 className="font-bold text-teksgelap text-sm leading-tight line-clamp-2">{p.nama_barang}</h4>
-                                </div>
-                                <p className={`font-black text-base ${isGridReturMode ? 'text-aksen' : 'text-header1'}`}>
-                                  {isGridReturMode ? '-' : ''}Rp {hrg.toLocaleString('id-ID')}
-                                </p>
-                              </div>
-                            );
-                          } else {
-                            return (
-                              <div 
-                                key={p.qr} 
-                                onClick={() => tambahDariGrid(p.qr)}
-                                className={`${cardStyle} border rounded-lg p-3 shadow-sm cursor-pointer hover:shadow-md transition flex items-center gap-3 active:scale-95`}
-                              >
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex gap-1 flex-wrap mb-1">
-                                    <span className="text-[10px] font-bold bg-bgutama text-footer2 px-2 py-0.5 rounded border border-footer2/20">
-                                      Stok: {vs.total}
-                                    </span>
+                                );
+                              } else {
+                                return (
+                                  <div 
+                                    key={p.qr} 
+                                    onClick={() => tambahDariGrid(p.qr)}
+                                    className={`${cardStyle} border rounded-lg p-3 shadow-sm cursor-pointer hover:shadow-md transition flex items-center gap-3 active:scale-95`}
+                                  >
+                                    <div className="flex-1 min-w-0">
+                                      <div className="flex gap-1 flex-wrap mb-1">
+                                        <span className="text-[10px] font-bold bg-bgutama text-footer2 px-2 py-0.5 rounded border border-footer2/20">
+                                          Stok: {vs.total}
+                                        </span>
+                                      </div>
+                                      <h4 className="font-bold text-teksgelap text-sm leading-tight truncate">{p.nama_barang}</h4>
+                                    </div>
+                                    <p className={`font-black text-base shrink-0 ${isGridReturMode ? 'text-aksen' : 'text-header1'}`}>
+                                      {isGridReturMode ? '-' : ''}Rp {hrg.toLocaleString('id-ID')}
+                                    </p>
                                   </div>
-                                  <h4 className="font-bold text-teksgelap text-sm leading-tight truncate">{p.nama_barang}</h4>
-                                </div>
-                                <p className={`font-black text-base shrink-0 ${isGridReturMode ? 'text-aksen' : 'text-header1'}`}>
-                                  {isGridReturMode ? '-' : ''}Rp {hrg.toLocaleString('id-ID')}
-                                </p>
+                                );
+                              }
+                            })}
+                        </div>
+                      )}
+                    </div>
+                  )}
+                  
+                  {/* TAMPILAN KATEGORI */}
+                  {gridGroupMode === 'kategori' && !isLoadingProduk && (
+                    <div className="flex flex-col gap-3">
+                      {Array.from(new Set(katalogPos.map(p => p.kategori || 'Tanpa Kategori'))).sort().map(kategori => {
+                        const produkDalamKategori = katalogPos.filter(p => 
+                          (p.kategori || 'Tanpa Kategori') === kategori &&
+                          (!searchGrid || 
+                            p.nama_barang?.toLowerCase().includes(searchGrid.toLowerCase()) || 
+                            p.qr?.toLowerCase().includes(searchGrid.toLowerCase()))
+                        );
+                        
+                        if (produkDalamKategori.length === 0) return null;
+                        
+                        const kategoriId = `kategori-${kategori}`;
+                        
+                        return (
+                          <div key={kategori} className="bg-bgutama/30 rounded-xl overflow-hidden">
+                            {/* Header Kategori dengan Accordion */}
+                            <button 
+                              onClick={() => toggleAccordion(kategoriId)}
+                              className="w-full p-3 flex items-center justify-between hover:bg-bgutama/50 transition"
+                            >
+                              <div className="flex items-center gap-2">
+                                <span className="bg-header1 text-white px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide">
+                                  {kategori}
+                                </span>
+                                <span className="text-footer2 text-xs font-bold">
+                                  ({produkDalamKategori.length} produk)
+                                </span>
                               </div>
-                            );
-                          }
+                              
+                              <svg 
+                                className={`w-5 h-5 text-footer2 transition-transform ${openAccordions.has(kategoriId) ? 'rotate-180' : ''}`} 
+                                fill="none" 
+                                stroke="currentColor" 
+                                viewBox="0 0 24 24"
+                              >
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 9l-7 7-7-7"></path>
+                              </svg>
+                            </button>
+                            
+                            {/* Konten Kategori */}
+                            {openAccordions.has(kategoriId) && (
+                              <div className="p-3">
+                                <div className={viewModeGrid === 'grid' ? 'grid grid-cols-2 lg:grid-cols-3 gap-2' : 'flex flex-col gap-2'}>
+                                  {produkDalamKategori.map(p => {
+                                    const hrg = getHargaByTipe(p, tipeHargaAktif);
+                                    const vs = getVirtualStock(p.qr);
+                                    if (!isGridReturMode && vs.total <= 0) return null;
+                                    
+                                    const cardStyle = isGridReturMode 
+                                      ? 'bg-aksen/5 border-aksen/40 hover:border-aksen' 
+                                      : 'bg-white border-footer2/30 hover:border-header1/50';
+                                    
+                                    if (viewModeGrid === 'grid') {
+                                      return (
+                                        <div 
+                                          key={p.qr} 
+                                          onClick={() => tambahDariGrid(p.qr)}
+                                          className={`${cardStyle} border rounded-lg p-3 shadow-sm cursor-pointer hover:shadow-md transition flex flex-col justify-between active:scale-95`}
+                                        >
+                                          <div className="mb-2">
+                                            <div className="flex gap-1 flex-wrap mb-1">
+                                              <span className="text-[10px] font-bold bg-bgutama text-footer2 px-2 py-0.5 rounded border border-footer2/20">
+                                                Stok: {vs.total}
+                                              </span>
+                                            </div>
+                                            <h4 className="font-bold text-teksgelap text-sm leading-tight line-clamp-2">{p.nama_barang}</h4>
+                                          </div>
+                                          <p className={`font-black text-base ${isGridReturMode ? 'text-aksen' : 'text-header1'}`}>
+                                            {isGridReturMode ? '-' : ''}Rp {hrg.toLocaleString('id-ID')}
+                                          </p>
+                                        </div>
+                                      );
+                                    } else {
+                                      return (
+                                        <div 
+                                          key={p.qr} 
+                                          onClick={() => tambahDariGrid(p.qr)}
+                                          className={`${cardStyle} border rounded-lg p-3 shadow-sm cursor-pointer hover:shadow-md transition flex items-center gap-3 active:scale-95`}
+                                        >
+                                          <div className="flex-1 min-w-0">
+                                            <h4 className="font-bold text-teksgelap text-sm leading-tight truncate">{p.nama_barang}</h4>
+                                          </div>
+                                          <div className="flex items-center gap-2 shrink-0">
+                                            <span className="text-[10px] font-bold bg-bgutama text-footer2 px-2 py-0.5 rounded border border-footer2/20">
+                                              Stok: {vs.total}
+                                            </span>
+                                            <p className={`font-black text-base ${isGridReturMode ? 'text-aksen' : 'text-header1'}`}>
+                                              {isGridReturMode ? '-' : ''}Rp {hrg.toLocaleString('id-ID')}
+                                            </p>
+                                          </div>
+                                        </div>
+                                      );
+                                    }
+                                  })}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                  
+                  {/* TAMPILAN ABJAD - Kartu Alfabet Grid */}
+                  {gridGroupMode === 'abjad' && !isLoadingProduk && (
+                    <div>
+                      {/* Grid Kartu Alfabet */}
+                      <div className="grid grid-cols-6 md:grid-cols-9 lg:grid-cols-13 gap-1.5 mb-4">
+                        {Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ').map(huruf => {
+                          const jumlahProduk = katalogPos.filter(p => 
+                            p.nama_barang?.toUpperCase().startsWith(huruf) &&
+                            (!searchGrid || 
+                              p.nama_barang?.toLowerCase().includes(searchGrid.toLowerCase()) || 
+                              p.qr?.toLowerCase().includes(searchGrid.toLowerCase()))
+                          ).length;
+                          
+                          const hurufId = `abjad-${huruf}`;
+                          const isActive = openAccordions.has(hurufId);
+                          
+                          return (
+                            <button
+                              key={huruf}
+                              onClick={() => toggleAccordion(hurufId)}
+                              disabled={jumlahProduk === 0}
+                              className={`relative p-2 rounded-lg border-2 text-center transition ${
+                                jumlahProduk === 0 
+                                  ? 'border-footer2/10 bg-bgutama/30 text-footer2/30 cursor-not-allowed' 
+                                  : isActive 
+                                    ? 'border-header1 bg-header1 text-white shadow-md' 
+                                    : 'border-footer2/30 bg-white text-header1 hover:border-header1/50 hover:bg-header1/5'
+                              }`}
+                            >
+                              <span className="text-lg font-black block">{huruf}</span>
+                              <span className={`text-[9px] font-bold block mt-0.5 ${
+                                isActive ? 'text-white/80' : 'text-footer2'
+                              }`}>
+                                {jumlahProduk}
+                              </span>
+                            </button>
+                          );
                         })}
+                      </div>
+                      
+                      {/* Konten Produk per Huruf */}
+                      <div className="flex flex-col gap-3">
+                        {Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ').map(huruf => {
+                          const produkDenganHuruf = katalogPos.filter(p => 
+                            p.nama_barang?.toUpperCase().startsWith(huruf) &&
+                            (!searchGrid || 
+                              p.nama_barang?.toLowerCase().includes(searchGrid.toLowerCase()) || 
+                              p.qr?.toLowerCase().includes(searchGrid.toLowerCase()))
+                          );
+                          
+                          if (produkDenganHuruf.length === 0) return null;
+                          
+                          const hurufId = `abjad-${huruf}`;
+                          
+                          if (!openAccordions.has(hurufId)) return null;
+                          
+                          return (
+                            <div key={hurufId} className="bg-bgutama/30 rounded-xl p-3">
+                              <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center gap-2">
+                                  <span className="bg-header1 text-white w-8 h-8 rounded-lg flex items-center justify-center text-lg font-black">
+                                    {huruf}
+                                  </span>
+                                  <span className="text-footer2 text-xs font-bold">
+                                    ({produkDenganHuruf.length} produk)
+                                  </span>
+                                </div>
+                                
+                                <button
+                                  onClick={() => toggleAccordion(hurufId)}
+                                  className="text-footer2 hover:text-aksen transition p-1"
+                                  title="Tutup"
+                                >
+                                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+                                  </svg>
+                                </button>
+                              </div>
+                              
+                              <div className={viewModeGrid === 'grid' ? 'grid grid-cols-2 lg:grid-cols-3 gap-2' : 'flex flex-col gap-2'}>
+                                {produkDenganHuruf.map(p => {
+                                  const hrg = getHargaByTipe(p, tipeHargaAktif);
+                                  const vs = getVirtualStock(p.qr);
+                                  if (!isGridReturMode && vs.total <= 0) return null;
+                                  
+                                  const cardStyle = isGridReturMode 
+                                    ? 'bg-aksen/5 border-aksen/40 hover:border-aksen' 
+                                    : 'bg-white border-footer2/30 hover:border-header1/50';
+                                  
+                                  if (viewModeGrid === 'grid') {
+                                    return (
+                                      <div 
+                                        key={p.qr} 
+                                        onClick={() => tambahDariGrid(p.qr)}
+                                        className={`${cardStyle} border rounded-lg p-3 shadow-sm cursor-pointer hover:shadow-md transition flex flex-col justify-between active:scale-95`}
+                                      >
+                                        <div className="mb-2">
+                                          <div className="flex gap-1 flex-wrap mb-1">
+                                            <span className="text-[10px] font-bold bg-bgutama text-footer2 px-2 py-0.5 rounded border border-footer2/20">
+                                              Stok: {vs.total}
+                                            </span>
+                                          </div>
+                                          <h4 className="font-bold text-teksgelap text-sm leading-tight line-clamp-2">{p.nama_barang}</h4>
+                                        </div>
+                                        <p className={`font-black text-base ${isGridReturMode ? 'text-aksen' : 'text-header1'}`}>
+                                          {isGridReturMode ? '-' : ''}Rp {hrg.toLocaleString('id-ID')}
+                                        </p>
+                                      </div>
+                                    );
+                                  } else {
+                                    return (
+                                      <div 
+                                        key={p.qr} 
+                                        onClick={() => tambahDariGrid(p.qr)}
+                                        className={`${cardStyle} border rounded-lg p-3 shadow-sm cursor-pointer hover:shadow-md transition flex items-center gap-3 active:scale-95`}
+                                      >
+                                        <div className="flex-1 min-w-0">
+                                          <h4 className="font-bold text-teksgelap text-sm leading-tight truncate">{p.nama_barang}</h4>
+                                        </div>
+                                        <div className="flex items-center gap-2 shrink-0">
+                                          <span className="text-[10px] font-bold bg-bgutama text-footer2 px-2 py-0.5 rounded border border-footer2/20">
+                                            Stok: {vs.total}
+                                          </span>
+                                          <p className={`font-black text-base ${isGridReturMode ? 'text-aksen' : 'text-header1'}`}>
+                                            {isGridReturMode ? '-' : ''}Rp {hrg.toLocaleString('id-ID')}
+                                          </p>
+                                        </div>
+                                      </div>
+                                    );
+                                  }
+                                })}
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
                     </div>
                   )}
                 </div>
