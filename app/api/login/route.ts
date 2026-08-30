@@ -35,7 +35,7 @@ export async function POST(request: Request) {
       }, { status: 401 });
     }
 
-    if (data.Status_Aktif !== 'Aktif') {
+    if (data.Status_Aktif !== 'true') {
       return NextResponse.json({ status: 'gagal', pesan: 'Akun tidak aktif' }, { status: 403 });
     }
 
