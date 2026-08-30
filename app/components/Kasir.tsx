@@ -78,6 +78,8 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
   const [dataDompetMaster, setDataDompetMaster] = useState<DompetData[]>([]);
   const [katalogPos, setKatalogPos] = useState<ProdukData[]>([]);
   const [pengaturan, setPengaturan] = useState<any>({});
+  const [isKatalogReady, setIsKatalogReady] = useState(false);
+  const [isLoadingProduk, setIsLoadingProduk] = useState(false);
   
   // State Sesi & View
   const [isModalInisialisasi, setIsModalInisialisasi] = useState(true);
@@ -131,7 +133,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
 
   useEffect(() => { 
     muatDataInisialisasi(); 
-    // Focus input kasir saat modal muncul
     setTimeout(() => refInputKasir.current?.focus(), 100);
   }, []);
 
@@ -174,29 +175,21 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
   }, [isModalInisialisasi, isModalScanner, isModeGrid, keranjangPos, currentKasir, currentPelanggan]);
 
   const lewatiInisialisasi = () => {
-    // Set kasir default kosong
     setCurrentKasir({ 
         id_karyawan: '', 
         nama_karyawan: 'Belum Dipilih' 
     });
     
-    // Set pelanggan default UMUM
     setCurrentPelanggan({ 
         id_pelanggan: 'UMUM', 
         nama: 'Pelanggan Umum', 
         tipe: 'A' 
     });
     
-    // Set tipe harga default A
     setTipeHargaAktif('A');
-    
-    // Tutup modal inisialisasi
     setIsModalInisialisasi(false);
-    
-    // Focus ke input barcode
     setTimeout(() => refBarcode.current?.focus(), 100);
     
-    // Tampilkan notifikasi
     ToastNotif.fire({ 
         icon: 'info', 
         title: 'Mode Tanpa Kasir - Data Kasir Kosong' 
@@ -217,20 +210,63 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         }
       };
 
-      const [resKaryawan, resPelanggan, resDompet, resProduk, resPengaturan] = await Promise.all([
+      // Fungsi untuk mengambil semua produk
+      const fetchSemuaProduk = async (): Promise<any[]> => {
+        setIsLoadingProduk(true);
+        let semuaData: any[] = [];
+        
+        try {
+          let halaman = 1;
+          const limitAman = 500; // Turunkan sedikit ke 500 agar server Supabase tidak menolak request yang terlalu besar
+          let masihAdaData = true;
+
+          while (masihAdaData && halaman <= 100) {
+            const res = await safeFetch(`/api/produk?limit=${limitAman}&page=${halaman}`);
+            
+            if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
+              semuaData = semuaData.concat(res.data);
+              
+              // Logika pengecekan yang lebih tangguh:
+              // Berhenti jika halaman saat ini >= total halaman dari server
+              if (res.totalPages && halaman >= res.totalPages) {
+                masihAdaData = false;
+              } 
+              // Berhenti jika data yang diterima kurang dari limit server
+              else if (res.data.length < (res.limit || limitAman)) {
+                masihAdaData = false;
+              } 
+              // Lanjut ke halaman berikutnya
+              else {
+                halaman++;
+              }
+            } else {
+              masihAdaData = false;
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching produk:', error);
+        } finally {
+          setIsLoadingProduk(false);
+        }
+        
+        return semuaData;
+      };
+
+      // Tarik master data secara paralel
+      const [resKaryawan, resPelanggan, resDompet, resPengaturan] = await Promise.all([
         safeFetch('/api/karyawan'),
         safeFetch('/api/pelanggan'),
         safeFetch('/api/dompet'),
-        safeFetch('/api/produk'),
         safeFetch('/api/pengaturan')
       ]);
 
+      // Set Master Data
       if (resKaryawan?.data) setDataKasirMaster(resKaryawan.data);
       if (resPelanggan?.data) setDataPelangganMaster(resPelanggan.data);
       else if (Array.isArray(resPelanggan)) setDataPelangganMaster(resPelanggan);
       if (resDompet?.data) setDataDompetMaster(resDompet.data);
-      if (resProduk?.data) setKatalogPos(resProduk.data);
-      
+
+      // Pengaturan
       if (resPengaturan?.data) {
         const configDb = Array.isArray(resPengaturan.data) ? resPengaturan.data[0] : resPengaturan.data;
         setPengaturan(configDb);
@@ -257,6 +293,17 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
           Label_Aktif_I: 'true'
         });
       }
+
+      // Tarik dan Set Produk
+      const semuaProduk = await fetchSemuaProduk();
+      if (semuaProduk.length > 0) {
+        setKatalogPos(semuaProduk);
+        setIsKatalogReady(true);
+        console.log(`Berhasil memuat ${semuaProduk.length} produk`);
+      } else {
+        console.warn('Tidak ada produk yang dimuat');
+      }
+
     } catch(err) { 
       console.error("Gagal fatal saat memuat data inisialisasi:", err); 
     }
@@ -319,7 +366,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         setDataTunda(null);
         setInputKasirWajib('');
         setInputPelangganWajib('');
-        // ✅ Reset kasir dan pelanggan
         setCurrentKasir({ id_karyawan: '', nama_karyawan: '' });
         setCurrentPelanggan({ id_pelanggan: 'UMUM', nama: 'Pelanggan Umum', tipe: 'A' });
         setTipeHargaAktif('A');
@@ -361,22 +407,22 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
   };
 
   // ============ LOGIKA UTAMA (STAGING & FIFO) ============
-  const findProduk = useCallback((val: string) => {
+  const findProduk = useCallback((val: string | number) => {
     if (!val) return null; 
-    const lowerVal = val.toLowerCase().trim();
+    const lowerVal = String(val).toLowerCase().trim();
     return katalogPos.find(p => 
-      p.qr?.toLowerCase() === lowerVal || 
-      p.nama_barang?.toLowerCase() === lowerVal
+      String(p.qr || '').toLowerCase().trim() === lowerVal || 
+      String(p.nama_barang || '').toLowerCase().trim() === lowerVal
     );
   }, [katalogPos]);
 
-  const getHargaByTipe = (p: any, tipe: string) => {
+  const getHargaByTipe = useCallback((p: any, tipe: string) => {
     if (!p) return 0;
     const tL = tipe.toLowerCase();
     const tU = tipe.toUpperCase();
     const val = p[`jual_${tL}`] ?? p[`jual${tU}`] ?? p[`harga_${tL}`] ?? p[`harga_jual_${tL}`];
     return Number(val || p.jual_a || p.jualA || 0);
-  };
+  }, []);
 
   useEffect(() => {
     if (stgForm.barcode && !isReturStaging) {
@@ -414,8 +460,9 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
       if (e.preventDefault) e.preventDefault();
 
       if (field === 'barcode') {
-        const barcodeVal = overrideBarcode || stgForm.barcode;
+        const barcodeVal = overrideBarcode || refBarcode.current?.value || stgForm.barcode;
         const p = findProduk(barcodeVal);
+        
         if (p) {
           const vs = getVirtualStock(p.qr);
           let mAktif = vs.j1 > 0 ? vs.m1 : (vs.j2 > 0 ? vs.m2 : vs.m3);
@@ -595,7 +642,13 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     refBarcode.current?.focus();
   };
 
+  // FUNGSI tambahDariGrid TANPA useCallback
   const tambahDariGrid = (qr: string) => {
+    if (!isKatalogReady) {
+      ToastNotif.fire({ icon: 'info', title: 'Data barang sedang dimuat...' });
+      return;
+    }
+    
     const p = findProduk(qr); 
     if (!p) {
       ToastNotif.fire({ icon: 'error', title: 'Tidak Ditemukan!' });
@@ -612,16 +665,20 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         i.qty < 0 && 
         i.returTarget === gridReturBatch
       );
-      if (existingIdx !== -1) newCart[existingIdx].qty -= 1;
-      else newCart.push({ 
-        qr: p.qr, 
-        nama: p.nama_barang, 
-        qty: -1, 
-        harga: hargaJual, 
-        tipeHarga: tipeHargaAktif, 
-        isRetur: true, 
-        returTarget: gridReturBatch 
-      });
+      
+      if (existingIdx !== -1) {
+        newCart[existingIdx].qty -= 1;
+      } else {
+        newCart.push({ 
+          qr: p.qr, 
+          nama: p.nama_barang, 
+          qty: -1, 
+          harga: hargaJual, 
+          tipeHarga: tipeHargaAktif, 
+          isRetur: true, 
+          returTarget: gridReturBatch 
+        });
+      }
     } else {
       const vs = getVirtualStock(qr);
       if (vs.total <= 0) {
@@ -634,17 +691,22 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         i.harga === hargaJual && 
         i.qty > 0
       );
-      if (existingIdx !== -1) newCart[existingIdx].qty += 1;
-      else newCart.push({ 
-        qr: p.qr, 
-        nama: p.nama_barang, 
-        qty: 1, 
-        harga: hargaJual, 
-        tipeHarga: tipeHargaAktif, 
-        isRetur: false, 
-        returTarget: null 
-      });
+      
+      if (existingIdx !== -1) {
+        newCart[existingIdx].qty += 1;
+      } else {
+        newCart.push({ 
+          qr: p.qr, 
+          nama: p.nama_barang, 
+          qty: 1, 
+          harga: hargaJual, 
+          tipeHarga: tipeHargaAktif, 
+          isRetur: false, 
+          returTarget: null 
+        });
+      }
     }
+    
     setKeranjangPos(newCart);
   };
 
@@ -838,7 +900,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         return;
     }
 
-    // ✅ Validasi kasir jika kosong
     if (!currentKasir.id_karyawan) {
         const result = await Swal.fire({
         icon: 'warning',
@@ -858,8 +919,8 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     }
 
     const dataTrx = { 
-        idKasir: currentKasir.id_karyawan || 'TANPA_KASIR', // ✅ Gunakan nilai default
-        namaKasir: currentKasir.nama_karyawan || 'Tanpa Kasir', // ✅ Gunakan nilai default
+        idKasir: currentKasir.id_karyawan || 'TANPA_KASIR',
+        namaKasir: currentKasir.nama_karyawan || 'Tanpa Kasir',
         idPelanggan: currentPelanggan.id_pelanggan, 
         namaPelanggan: currentPelanggan.nama, 
         tipeHarga: tipeHargaAktif, 
@@ -893,8 +954,8 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
             metodeBayar: metodeBayar,
             status: metodeBayar === 'Piutang' ? 'Hutang' : 'Lunas',
             dibayar: bayarTunai,
-            diskon: 0, // Ambil dari state jika ada
-            biaya_lain: 0, // Ambil dari state jika ada
+            diskon: 0,
+            biaya_lain: 0,
             kembalian: kembalian,
             isRefund: isRefund
         };
@@ -963,7 +1024,7 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     });
   };
 
-// --- FUNGSI CETAK STRUK KASIR ---
+  // --- FUNGSI CETAK STRUK KASIR ---
   const cetakStrukKasir = (idTrx: string, dataTrx: any, cartData: any[]) => {
     const lebarKertas = (pengaturan?.Struk_Kertas === '80mm') ? '350px' : '280px';
     const fontSizeStruk = pengaturan?.Struk_FontSize || '12px';
@@ -977,7 +1038,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         @page { margin: 0; }
         body { font-family: 'Courier New', Courier, monospace; width: 100%; max-width: ${lebarKertas}; margin: 0 auto; padding: 10px; color: #000; font-size: ${fontSizeStruk}; }
         .center { text-align: center; } .right { text-align: right; } .bold { font-weight: bold; }
-        /* Memaksa tabel mengikuti ukuran font dari body */
         table { width: 100%; border-collapse: collapse; font-size: inherit; }
         td { vertical-align: top; padding: 2px 0; }
         .border-dashed { border-bottom: 1px dashed #000; margin: 8px 0; }
@@ -985,7 +1045,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     </head><body>
     `;
 
-    // 1. HEADER (H1 sampai H5)
     for (let i = 1; i <= 5; i++) {
         let barisHeader = pengaturan[`Struk_H${i}`];
         if (barisHeader && barisHeader.trim() !== '') {
@@ -998,10 +1057,8 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     htmlContent += `<div class="center bold" style="margin-top: 5px; font-size: 13px;">${judulStruk}</div>`;
     htmlContent += '<div class="border-dashed"></div>';
     
-    // 2. METADATA (Menyesuaikan Pengaturan & Label Kosong)
     const getLabel = (val: any, defaultLabel: string) => (val === undefined || val === null) ? defaultLabel : val;
     
-    // Helper: Jika label dikosongkan (""), titik dua (:) tidak akan dicetak
     const renderRow = (labelSetting: any, defaultLabel: string, value: string) => {
         let lbl = getLabel(labelSetting, defaultLabel);
         let separator = lbl.trim() !== '' ? ': ' : '';
@@ -1015,7 +1072,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     }
     
     if (pengaturan.Struk_ShowWaktu === 'true' || pengaturan.Struk_ShowWaktu === true) {
-        // Opsi format waktu kasir (bisa disesuaikan dengan formatWaktu jika tersedia di global)
         const waktuSekarang = new Date().toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
         htmlInfo += renderRow(pengaturan.Struk_Label_Waktu, 'Waktu', waktuSekarang);
     }
@@ -1032,7 +1088,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         htmlContent += `<table>${htmlInfo}</table><div class="border-dashed"></div>`;
     }
 
-    // 3. ITEM BARANG
     htmlContent += '<table>';
     cartData.forEach(item => {
         const isRetur = item.qty < 0;
@@ -1055,7 +1110,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     htmlContent += '</table>';
     htmlContent += '<div class="border-dashed"></div>';
     
-    // 4. SUMMARY TAGIHAN
     const subtotalBruto = cartData.reduce((sum, item) => sum + (item.qty * item.harga_jual), 0);
     const grandTotal = subtotalBruto - (dataTrx.diskon || 0) + (dataTrx.biaya_lain || 0);
     const nominalDibayar = dataTrx.status === 'Lunas' ? grandTotal : (dataTrx.dibayar || 0);
@@ -1076,7 +1130,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     <div class="border-dashed"></div>
     `;
 
-    // 5. FOOTER (F1, F2, F3)
     for (let i = 1; i <= 3; i++) {
         let barisFooter = pengaturan[`Struk_F${i}`];
         if (barisFooter && barisFooter.trim() !== '') {
@@ -1084,7 +1137,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         }
     }
 
-    // 6. QR CODE PROMOSI / INFO
     let qr1Label = pengaturan.Struk_QR1_Label; let qr1Data = pengaturan.Struk_QR1_Data;
     let qr2Label = pengaturan.Struk_QR2_Label; let qr2Data = pengaturan.Struk_QR2_Data;
 
@@ -1106,7 +1158,9 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
 
     htmlContent += '</body></html>';
     
-    printWindow.document.write(htmlContent); printWindow.document.close(); printWindow.focus();
+    printWindow.document.write(htmlContent); 
+    printWindow.document.close(); 
+    printWindow.focus();
     setTimeout(() => { printWindow.print(); }, 600);
   };
 
@@ -1253,7 +1307,7 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
           <button 
             onClick={() => setIsModalInisialisasi(true)} 
             className="bg-white/20 hover:bg-white/30 px-3 py-1.5 rounded text-xs md:text-sm font-mono flex gap-2 items-center flex-1 truncate transition cursor-pointer text-left"
-            >
+          >
             <span className="truncate">
                 KSR: <b>{currentKasir.nama_karyawan || 'Belum Dipilih'}</b>
             </span>
@@ -1443,7 +1497,7 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                   </div>
                 </div>
 
-               {!isReturStaging ? (
+                {!isReturStaging ? (
                 <div className="mt-2 bg-gradient-to-br from-header2/5 to-bgutama/50 p-3 rounded-xl border-2 border-header2/30 transition-all duration-300">
                     <div className="flex justify-between items-center mb-2 pb-2 border-b border-header2/20">
                     <span className="text-xs font-black text-header1 uppercase tracking-wider flex items-center gap-1">
@@ -1467,7 +1521,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                     Destinasi Stok Retur
                     </span>
                     
-                    {/* INFO HARGA JUAL & HPP PER BATCH */}
                     {stgForm.nama && (
                     <div className="mb-3 bg-white/80 rounded-lg border border-aksen/20 p-2">
                         <p className="text-[10px] font-black text-aksen uppercase tracking-wide mb-1.5">
@@ -1527,7 +1580,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                     ))}
                     </div>
                     
-                    {/* TOMBOL CEPAT ISI HARGA */}
                     {stgForm.nama && (
                     <div className="mt-2 flex gap-1.5">
                         {[1, 2, 3].map(b => {
@@ -1560,7 +1612,7 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                     Barang akan memotong tagihan dan stok akan dikembalikan ke Batch yang dipilih.
                     </p>
                 </div>
-               )}
+                )}
 
                 <button 
                   ref={refBtnInput}
@@ -1658,6 +1710,12 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                 </div>
                 
                 <div className="flex-1 overflow-y-auto p-3 min-h-0">
+                  {isLoadingProduk && (
+                    <div className="text-center py-4 text-footer2">
+                      <p>Memuat produk...</p>
+                    </div>
+                  )}
+                  
                   {gridGroupMode === 'none' && (
                     <div className={viewModeGrid === 'grid' ? 'grid grid-cols-2 lg:grid-cols-3 gap-2' : 'flex flex-col gap-2'}>
                       {katalogPos
@@ -1751,7 +1809,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                     const subtotal = item.qty * item.harga;
                     const isRetur = item.qty < 0;
                     
-                    // Hitung HPP per item
                     const p = findProduk(item.qr);
                     let totalHPP = 0;
                     
