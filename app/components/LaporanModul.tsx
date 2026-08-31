@@ -207,155 +207,271 @@ export default function LaporanModul({ onClose }: LaporanProps) {
   };
 
   // Muat Laporan (Fetch ke API)
-  const muatDataLaporan = useCallback(async () => {
+    const muatDataLaporan = useCallback(async () => {
     if (!startDate || !endDate) {
-      setError('Silakan pilih tanggal terlebih dahulu');
-      return;
+        setError('Silakan pilih tanggal terlebih dahulu');
+        return;
     }
     
     setLoading(true);
     setError('');
-    setDataLaporan(null); 
-
-    const startStr = `${startDate}T00:00:00`;
-    const endStr = `${endDate}T23:59:59`;
-
+    setDataLaporan(null);
+    
     try {
-      const res = await fetch(`/api/laporan?start=${encodeURIComponent(startStr)}&end=${encodeURIComponent(endStr)}`);
-      
-      if (!res.ok) {
-        throw new Error(`HTTP ${res.status}: Gagal mengambil data laporan`);
-      }
-      
-      const result = await res.json();
-      
-      if (result.status === 'sukses' && result.data) {
-        const d = ensureDataLaporan(result.data);
+        // PANGGIL API TANPA PARAMETER - SEPERTI MODUL YANG BERHASIL
+        const res = await fetch('/api/laporan');
         
-        // ============ PROSES PEMASUKAN ============
-        let arrPemasukan: {
-          sandi: string;
-          uraian: string;
-          jumlah: number;
-          jumlahTransaksi: number;
-        }[] = [];
-        
-        const pemasukanMap = new Map<string, { nominal: number; jumlahTransaksi: number }>();
-        
-        // Populate dari rincianPemasukan
-        if (d.tengah.rincianPemasukan && d.tengah.rincianPemasukan.length > 0) {
-          d.tengah.rincianPemasukan.forEach(item => {
-            pemasukanMap.set(item.sandi, {
-              nominal: item.nominal,
-              jumlahTransaksi: item.jumlahTransaksi
-            });
-          });
+        if (!res.ok) {
+        throw new Error(`HTTP ${res.status}: Gagal mengambil data`);
         }
         
-        // Populate dari pemasukan object
-        Object.entries(d.tengah.pemasukan || {}).forEach(([sandi, nominal]) => {
-          if (!pemasukanMap.has(sandi)) {
-            pemasukanMap.set(sandi, {
-              nominal: nominal,
-              jumlahTransaksi: 0
-            });
-          }
+        const result = await res.json();
+        
+        if (result.status === 'sukses' && result.data) {
+        // Filter di frontend berdasarkan tanggal
+        const startTime = new Date(`${startDate}T00:00:00`).getTime();
+        const endTime = new Date(`${endDate}T23:59:59`).getTime();
+        
+        const filteredJurnal = (result.data.jurnal || []).filter((j: any) => {
+            const waktu = new Date(j.waktu).getTime();
+            return waktu >= startTime && waktu <= endTime;
         });
         
-        // Tampilkan SEMUA sandi A-Z untuk pemasukan
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").forEach(char => {
-          const dataPemasukan = pemasukanMap.get(char);
-          const labelTeks = getSandiLabel(refSandi, char);
-          
-          if (labelTeks && String(labelTeks).trim() !== '') {
-            const nominal = dataPemasukan?.nominal || 0;
-            const jumlahTrx = dataPemasukan?.jumlahTransaksi || 0;
-            
-            arrPemasukan.push({
-              sandi: char,
-              uraian: `${char}. ${labelTeks}`,
-              jumlah: nominal,
-              jumlahTransaksi: jumlahTrx
-            });
-          }
+        const filteredTransaksi = (result.data.transaksi || []).filter((t: any) => {
+            const waktu = new Date(t.waktu).getTime();
+            return waktu >= startTime && waktu <= endTime;
         });
         
-        // ============ PROSES PENGELUARAN ============
-        let arrPengeluaran: {
-          sandi: string;
-          uraian: string;
-          jumlah: number;
-          jumlahTransaksi: number;
-        }[] = [];
-        
-        const pengeluaranMap = new Map<string, { nominal: number; jumlahTransaksi: number }>();
-        
-        // Populate dari rincianPengeluaran
-        if (d.tengah.rincianPengeluaran && d.tengah.rincianPengeluaran.length > 0) {
-          d.tengah.rincianPengeluaran.forEach(item => {
-            pengeluaranMap.set(item.sandi, {
-              nominal: item.nominal,
-              jumlahTransaksi: item.jumlahTransaksi
-            });
-          });
-        }
-        
-        // Populate dari pengeluaran object
-        Object.entries(d.tengah.pengeluaran || {}).forEach(([sandi, nominal]) => {
-          if (!pengeluaranMap.has(sandi)) {
-            pengeluaranMap.set(sandi, {
-              nominal: nominal,
-              jumlahTransaksi: 0
-            });
-          }
+        const filteredPembelian = (result.data.pembelian || []).filter((p: any) => {
+            const waktu = new Date(p.waktu).getTime();
+            return waktu >= startTime && waktu <= endTime;
         });
         
-        // Tampilkan SEMUA sandi A-Z untuk pengeluaran
-        "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").forEach(char => {
-          const dataPengeluaran = pengeluaranMap.get(char);
-          const labelTeks = getSandiLabel(refSandi, char);
-          
-          if (labelTeks && String(labelTeks).trim() !== '') {
-            const nominal = dataPengeluaran?.nominal || 0;
-            const jumlahTrx = dataPengeluaran?.jumlahTransaksi || 0;
-            
-            arrPengeluaran.push({
-              sandi: char,
-              uraian: `${char}. ${labelTeks}`,
-              jumlah: nominal,
-              jumlahTransaksi: jumlahTrx
-            });
-          }
+        console.log('📊 Filtered:', {
+            jurnal: filteredJurnal.length,
+            transaksi: filteredTransaksi.length,
+            pembelian: filteredPembelian.length
         });
         
-        // Tambahkan NONE jika ada
-        if (pengeluaranMap.has('NONE') && pengeluaranMap.get('NONE')!.nominal > 0) {
-          const dataNone = pengeluaranMap.get('NONE')!;
-          arrPengeluaran.push({
-            sandi: 'NONE',
-            uraian: "Lainnya (Tanpa Sandi)",
-            jumlah: dataNone.nominal,
-            jumlahTransaksi: dataNone.jumlahTransaksi
-          });
-        }
-
-        setRawPemasukanArray(arrPemasukan);
-        setRawPengeluaranArray(arrPengeluaran);
-        setDataLaporan(d);
-      } else {
+        // PROSES PERHITUNGAN SEDERHANA
+        const laporan = hitungLaporan(
+            filteredJurnal,
+            filteredTransaksi,
+            filteredPembelian,
+            result.data.transaksiDetail || [],
+            result.data.pembelianDetail || [],
+            result.data.mutasi || []
+        );
+        
+        setDataLaporan(laporan);
+        setRawPemasukanArray(laporan.rawPemasukan);
+        setRawPengeluaranArray(laporan.rawPengeluaran);
+        
+        console.log('✅ Laporan berhasil dihitung');
+        } else {
         throw new Error('Format respons tidak valid');
-      }
+        }
     } catch (err: any) {
-      setError(err.message);
-      Swal.fire({
+        console.error('❌ Error:', err);
+        setError(err.message);
+        Swal.fire({
         icon: 'error',
         title: 'Error',
         text: err.message,
-      });
+        });
     } finally {
-      setLoading(false);
+        setLoading(false);
     }
-  }, [startDate, endDate, refSandi]);
+    }, [startDate, endDate]);
+
+// Fungsi hitung laporan sederhana
+const hitungLaporan = (
+  jurnal: any[],
+  transaksi: any[],
+  pembelian: any[],
+  transaksiDetail: any[],
+  pembelianDetail: any[],
+  mutasi: any[]
+) => {
+  // Inisialisasi
+  const result: any = {
+    kiri: {
+      jmlTrx: 0,
+      totalPemasukan: 0,
+      totalHpp: 0,
+      totalLaba: 0,
+      rataKeranjang: 0,
+      totalTransaksiOffline: 0,
+      totalTransaksiOnline: 0,
+      totalPembelian: 0,
+      totalHutangSupplier: 0,
+      totalRetur: 0
+    },
+    tengah: {
+      pengeluaran: {},
+      pemasukan: {},
+      totalPengeluaran: 0,
+      totalPemasukan: 0,
+      rincianPengeluaran: [],
+      rincianPemasukan: []
+    },
+    kanan: {
+      labaTotal: 0,
+      labaOffline: 0,
+      labaOnline: 0,
+      bpom: { omzet: 0, hpp: 0, laba: 0 },
+      nonBpom: { omzet: 0, hpp: 0, laba: 0 },
+      piutangCust: 0,
+      piutangSup: 0,
+      piutangAnggota: 0,
+      piutangKaryawan: 0,
+      hutangSupplier: 0
+    },
+    detailTransaksi: {
+      metodePembayaran: {},
+      tipeHarga: {},
+      metodePenjualan: {}
+    },
+    detailPembelian: {
+      totalPembelian: 0,
+      totalDibayar: 0,
+      sisaHutang: 0,
+      jumlahSupplier: 0,
+      jumlahItemDibeli: 0
+    },
+    rawPemasukan: [],
+    rawPengeluaran: []
+  };
+  
+  // Map untuk sandi
+  const pemasukanMap = new Map();
+  const pengeluaranMap = new Map();
+  
+  // Proses transaksi
+  transaksi.forEach((t: any) => {
+    result.kiri.jmlTrx++;
+    result.kiri.totalPemasukan += Number(t.total_belanja || 0);
+    
+    // Hitung HPP dan laba dari detail
+    const details = transaksiDetail.filter(d => d.id_transaksi === t.id_transaksi);
+    let hppTransaksi = 0;
+    let labaTransaksi = 0;
+    
+    details.forEach((d: any) => {
+      hppTransaksi += Number(d.subtotal_modal || 0);
+      labaTransaksi += Number(d.laba_kotor || 0);
+    });
+    
+    result.kiri.totalHpp += hppTransaksi;
+    result.kiri.totalLaba += labaTransaksi;
+    
+    // Pemasukan sandi D
+    if (!pemasukanMap.has('D')) {
+      pemasukanMap.set('D', { nominal: 0, jumlahTransaksi: 0, keterangan: 'Pemasukan Toko' });
+    }
+    pemasukanMap.get('D').nominal += Number(t.total_belanja || 0);
+    pemasukanMap.get('D').jumlahTransaksi++;
+    
+    // Deteksi online/offline
+    const metodeJual = String(t.metode_penjualan || '').toUpperCase();
+    const isOnline = metodeJual.includes('ONLINE') || metodeJual.includes('MARKETPLACE');
+    
+    if (isOnline) {
+      result.kiri.totalTransaksiOnline++;
+      result.kanan.labaOnline += labaTransaksi;
+    } else {
+      result.kiri.totalTransaksiOffline++;
+      result.kanan.labaOffline += labaTransaksi;
+    }
+  });
+  
+  // Proses pembelian
+  pembelian.forEach((p: any) => {
+    const total = Number(p.total_tagihan || 0);
+    result.kiri.totalPembelian += total;
+    result.detailPembelian.totalPembelian += total;
+    result.detailPembelian.totalDibayar += Number(p.dibayar || 0);
+    
+    const sisa = Number(p.sisa_hutang_toko || 0);
+    result.detailPembelian.sisaHutang += sisa;
+    result.kanan.hutangSupplier += sisa;
+    
+    // Pengeluaran sandi E
+    if (!pengeluaranMap.has('E')) {
+      pengeluaranMap.set('E', { nominal: 0, jumlahTransaksi: 0, keterangan: 'Belanja Barang/Restok' });
+    }
+    pengeluaranMap.get('E').nominal += total;
+    pengeluaranMap.get('E').jumlahTransaksi++;
+  });
+  
+  // Proses jurnal
+  jurnal.forEach((j: any) => {
+    const nominal = Number(j.nominal || 0);
+    const tipe = String(j.tipe || '').toUpperCase();
+    const sandi = j.sandi ? String(j.sandi).charAt(0).toUpperCase() : '';
+    
+    if (tipe === 'PEMASUKAN' || tipe === 'PEMASUKAN_LAIN') {
+      if (!pemasukanMap.has(sandi)) {
+        pemasukanMap.set(sandi, { nominal: 0, jumlahTransaksi: 0, keterangan: j.keterangan || `Sandi ${sandi}` });
+      }
+      pemasukanMap.get(sandi).nominal += nominal;
+      pemasukanMap.get(sandi).jumlahTransaksi++;
+    } else if (tipe === 'PENGELUARAN' || tipe === 'BEBAN') {
+      if (sandi) {
+        if (!pengeluaranMap.has(sandi)) {
+          pengeluaranMap.set(sandi, { nominal: 0, jumlahTransaksi: 0, keterangan: j.keterangan || `Sandi ${sandi}` });
+        }
+        pengeluaranMap.get(sandi).nominal += nominal;
+        pengeluaranMap.get(sandi).jumlahTransaksi++;
+      }
+    }
+  });
+  
+  // Konversi map ke array
+  pemasukanMap.forEach((value, key) => {
+    result.tengah.pemasukan[key] = value.nominal;
+    result.tengah.rincianPemasukan.push({
+      sandi: key,
+      keterangan: value.keterangan,
+      nominal: value.nominal,
+      jumlahTransaksi: value.jumlahTransaksi
+    });
+    result.rawPemasukan.push({
+      sandi: key,
+      uraian: `${key}. ${value.keterangan}`,
+      jumlah: value.nominal,
+      jumlahTransaksi: value.jumlahTransaksi
+    });
+  });
+  
+  pengeluaranMap.forEach((value, key) => {
+    result.tengah.pengeluaran[key] = value.nominal;
+    result.tengah.rincianPengeluaran.push({
+      sandi: key,
+      keterangan: value.keterangan,
+      nominal: value.nominal,
+      jumlahTransaksi: value.jumlahTransaksi
+    });
+    result.rawPengeluaran.push({
+      sandi: key,
+      uraian: `${key}. ${value.keterangan}`,
+      jumlah: value.nominal,
+      jumlahTransaksi: value.jumlahTransaksi
+    });
+  });
+  
+  // Hitung total
+  result.tengah.totalPemasukan = Array.from(pemasukanMap.values()).reduce((sum, v) => sum + v.nominal, 0);
+  result.tengah.totalPengeluaran = Array.from(pengeluaranMap.values()).reduce((sum, v) => sum + v.nominal, 0);
+  
+  // Rata-rata keranjang
+  result.kiri.rataKeranjang = result.kiri.jmlTrx > 0 ? result.kiri.totalPemasukan / result.kiri.jmlTrx : 0;
+  
+  // Laba total
+  result.kanan.labaTotal = result.kiri.totalLaba - result.tengah.totalPengeluaran;
+  
+  return result;
+};
 
   // Efek memuat data saat tanggal berubah
   useEffect(() => {
