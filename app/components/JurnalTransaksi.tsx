@@ -178,95 +178,103 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
 
     const isRestok = trx.tipe === 'RESTOK';
     
+    // Injeksi <style> khusus untuk memangkas "bezel dalam" (margin) bawaan SweetAlert
     let htmlDetail = `
-      <div class="text-left space-y-3 max-h-[60vh] overflow-y-auto p-2">
-        <div class="bg-bgutama p-3 rounded-lg border border-footer2/20">
-          <p class="text-xs font-bold text-footer2 mb-2">INFORMASI ${isRestok ? 'PEMBELIAN' : 'PENJUALAN'}</p>
-          <div class="grid grid-cols-2 gap-2 text-xs">
+      <style>
+        /* Menghapus jarak kosong tebal di sisi kiri-kanan dalam pop-up */
+        .swal2-html-custom {
+          margin: 10px 0 0 0 !important; 
+          padding: 0 4px !important;
+        }
+      </style>
+      <div class="text-left space-y-2 max-h-[60vh] overflow-y-auto w-full">
+        <div class="bg-bgutama p-2 rounded-lg border border-footer2/20">
+          <p class="text-xs font-bold text-footer2 mb-1" style="font-size: 11px;">INFORMASI ${isRestok ? 'PEMBELIAN' : 'PENJUALAN'}</p>
+          <div class="grid grid-cols-2 gap-1 text-xs" style="font-size: 11px;">
             <div>
-              <p class="text-footer2">No. Transaksi</p>
+              <p class="text-footer2" style="font-size: 10px;">No. Transaksi</p>
               <p class="font-bold text-header1">${detail.header.id_transaksi || detail.header.id_pembelian}</p>
             </div>
             <div>
-              <p class="text-footer2">Waktu</p>
+              <p class="text-footer2" style="font-size: 10px;">Waktu</p>
               <p class="font-bold">${formatWaktu(detail.header.waktu || detail.header.created_at)}</p>
             </div>
             <div>
-              <p class="text-footer2">${isRestok ? 'Supplier' : 'Pelanggan'}</p>
+              <p class="text-footer2" style="font-size: 10px;">${isRestok ? 'Supplier' : 'Pelanggan'}</p>
               <p class="font-bold">${isRestok ? (detail.header.id_supplier || '-') : (detail.header.nama_pelanggan || '-')}</p>
             </div>
             <div>
-              <p class="text-footer2">Status</p>
+              <p class="text-footer2" style="font-size: 10px;">Status</p>
               <p class="font-bold ${detail.header.status?.toLowerCase() === 'lunas' ? 'text-header1' : 'text-aksen'}">${detail.header.status || 'Lunas'}</p>
             </div>
             ${isRestok ? `
               <div>
-                <p class="text-footer2">Nama Pengirim</p>
+                <p class="text-footer2" style="font-size: 10px;">Nama Pengirim</p>
                 <p class="font-bold">${detail.header.nama_pengirim || '-'}</p>
               </div>
               <div>
-                <p class="text-footer2">Karyawan</p>
+                <p class="text-footer2" style="font-size: 10px;">Karyawan</p>
                 <p class="font-bold">${detail.header.id_karyawan || '-'}</p>
               </div>
             ` : `
               <div>
-                <p class="text-footer2">Metode Bayar</p>
+                <p class="text-footer2" style="font-size: 10px;">Metode Bayar</p>
                 <p class="font-bold">${detail.header.metode_pembayaran || '-'}</p>
               </div>
               <div>
-                <p class="text-footer2">Tipe Harga</p>
+                <p class="text-footer2" style="font-size: 10px;">Tipe Harga</p>
                 <p class="font-bold">${detail.header.tipe_harga || '-'}</p>
               </div>
             `}
           </div>
         </div>
         
-        <div class="bg-white p-3 rounded-lg border border-footer2/20">
-          <p class="text-xs font-bold text-footer2 mb-2">RINCIAN BARANG</p>
-          <table class="w-full text-xs border-collapse">
+        <div class="bg-white p-2 rounded-lg border border-footer2/20">
+          <p class="text-xs font-bold text-footer2 mb-1" style="font-size: 11px;">RINCIAN BARANG</p>
+          <table class="w-full text-xs border-collapse" style="font-size: 11px;">
             <thead class="bg-bgutama">
               <tr>
-                <th class="p-2 border-b text-left">Barang</th>
-                <th class="p-2 border-b text-center">Qty</th>
-                <th class="p-2 border-b text-right">Harga</th>
-                <th class="p-2 border-b text-right">Subtotal</th>
-                ${!isRestok ? '<th class="p-2 border-b text-right">Laba</th>' : ''}
+                <th class="p-1 border-b text-left">Barang</th>
+                <th class="p-1 border-b text-center">Qty</th>
+                <th class="p-1 border-b text-right">Harga</th>
+                <th class="p-1 border-b text-right">Subtotal</th>
+                ${!isRestok ? '<th class="p-1 border-b text-right">Laba</th>' : ''}
               </tr>
             </thead>
             <tbody>
     `;
-    
+
     detail.items.forEach((item: any) => {
       if (isRestok) {
         htmlDetail += `
           <tr class="border-b border-footer2/10">
-            <td class="p-2">${item.nama_barang}<br/><span class="text-[9px] text-footer2">${item.qr_barang}</span></td>
-            <td class="p-2 text-center">${item.qty_masuk}</td>
-            <td class="p-2 text-right">${formatRp(item.harga_beli_baru)}</td>
-            <td class="p-2 text-right font-bold">${formatRp(item.qty_masuk * item.harga_beli_baru)}</td>
+            <td class="p-1" style="font-size: 10px;">${item.nama_barang}<br/><span class="text-[9px] text-footer2">${item.qr_barang}</span></td>
+            <td class="p-1 text-center" style="font-size: 10px;">${item.qty_masuk}</td>
+            <td class="p-1 text-right" style="font-size: 10px;">${formatRp(item.harga_beli_baru)}</td>
+            <td class="p-1 text-right font-bold" style="font-size: 10px;">${formatRp(item.qty_masuk * item.harga_beli_baru)}</td>
           </tr>
         `;
       } else {
         htmlDetail += `
           <tr class="border-b border-footer2/10">
-            <td class="p-2">${item.nama_barang}<br/><span class="text-[9px] text-footer2">${item.qr_barang}</span></td>
-            <td class="p-2 text-center">${item.qty}</td>
-            <td class="p-2 text-right">${formatRp(item.harga_jual_satuan)}</td>
-            <td class="p-2 text-right font-bold">${formatRp(item.subtotal_jual)}</td>
-            <td class="p-2 text-right ${item.laba_kotor >= 0 ? 'text-header1' : 'text-aksen'}">${item.laba_kotor >= 0 ? '+' : ''}${formatRp(item.laba_kotor)}</td>
+            <td class="p-1" style="font-size: 10px;">${item.nama_barang}<br/><span class="text-[9px] text-footer2">${item.qr_barang}</span></td>
+            <td class="p-1 text-center" style="font-size: 10px;">${item.qty}</td>
+            <td class="p-1 text-right" style="font-size: 10px;">${formatRp(item.harga_jual_satuan)}</td>
+            <td class="p-1 text-right font-bold" style="font-size: 10px;">${formatRp(item.subtotal_jual)}</td>
+            <td class="p-1 text-right ${item.laba_kotor >= 0 ? 'text-header1' : 'text-aksen'}" style="font-size: 10px;">${item.laba_kotor >= 0 ? '+' : ''}${formatRp(item.laba_kotor)}</td>
           </tr>
         `;
       }
     });
-    
+
     htmlDetail += `
             </tbody>
           </table>
         </div>
         
-        <div class="bg-bgutama p-3 rounded-lg border border-footer2/20">
-          <p class="text-xs font-bold text-footer2 mb-2">RINGKASAN</p>
-          <div class="space-y-1 text-xs">
+        <div class="bg-bgutama p-2 rounded-lg border border-footer2/20">
+          <p class="text-xs font-bold text-footer2 mb-1" style="font-size: 11px;">RINGKASAN</p>
+          <div class="space-y-1 text-xs" style="font-size: 11px;">
             <div class="flex justify-between">
               <span>Subtotal</span>
               <span class="font-bold">${formatRp(detail.header.total_belanja || detail.header.total_tagihan)}</span>
@@ -315,14 +323,30 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
       </div>
     `;
 
+    const isMobile = window.innerWidth < 768;
+    const popupWidth = isMobile ? '98%' : '550px';
+    const warnaHeader1 = pengaturan?.Warna_Header1 || '#00acc1';
+    const warnaTeksGelap = pengaturan?.Warna_TeksGelap || '#2D3715';
+
     Swal.fire({
       title: `Detail ${isRestok ? 'Restok' : 'Penjualan'}`,
       html: htmlDetail,
-      width: '90%',
+      width: popupWidth,
+      padding: isMobile ? '10px 4px' : '15px 12px',
+      customClass: {
+        popup: 'swal2-popup-custom',
+        title: 'swal2-title-custom',
+        htmlContainer: 'swal2-html-custom', // Class ini yang disasar oleh CSS di atas
+        actions: 'swal2-actions-custom',
+        confirmButton: 'swal2-confirm-custom',
+        cancelButton: 'swal2-cancel-custom'
+      },
       showCancelButton: true,
       confirmButtonText: 'Cetak Ulang',
       cancelButtonText: 'Tutup',
-      confirmButtonColor: '#5A7718'
+      confirmButtonColor: warnaHeader1,
+      cancelButtonColor: warnaTeksGelap,
+      showCloseButton: true
     }).then((result) => {
       if (result.isConfirmed) {
         cetakUlangStruk(trx, detail);
@@ -330,11 +354,11 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
     });
   };
 
-// --- FUNGSI CETAK ULANG STRUK ---
+  // --- FUNGSI CETAK ULANG STRUK ---
   const cetakUlangStruk = (trx: any, detail: any) => {
     const isRestok = trx.tipe === 'RESTOK';
     const lebarKertas = (pengaturan?.Struk_Kertas === '80mm') ? '350px' : '280px';
-    const fontSizeStruk = pengaturan?.Struk_FontSize || '12px';
+    const fontSizeStruk = pengaturan?.Struk_FontSize || '13px';
     
     const printWindow = window.open('', '_blank', 'width=400,height=600');
     if (!printWindow) {
@@ -344,14 +368,15 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
 
     let htmlContent = `
     <html><head><title>Cetak Ulang ${trx.id_transaksi}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@500;600;700&display=swap" rel="stylesheet">
     <style>
       @page { margin: 0; }
-      body { font-family: 'Courier New', Courier, monospace; width: 100%; max-width: ${lebarKertas}; margin: 0 auto; padding: 10px; color: #000; font-size: ${fontSizeStruk}; }
-      .center { text-align: center; } .right { text-align: right; } .bold { font-weight: bold; }
-      /* PERBAIKAN: Memaksa tabel mewarisi ukuran font dari body agar ikut membesar/mengecil */
-      table { width: 100%; border-collapse: collapse; font-size: inherit; }
-      td { vertical-align: top; padding: 2px 0; }
-      .border-dashed { border-bottom: 1px dashed #000; margin: 8px 0; }
+      body { font-family: 'Roboto Mono', monospace; width: 100%; max-width: ${lebarKertas}; margin: 0 auto; padding: 15px 10px; color: #000; font-size: ${fontSizeStruk}; line-height: 1.2; }
+      .center { text-align: center; } .right { text-align: right; } .bold { font-weight: 700; }
+      table { width: 100%; border-collapse: collapse; font-size: inherit; font-weight: 600; }
+      td { vertical-align: top; padding: 1px 0; }
+      .border-dashed { border-bottom: 1px dashed #000; margin: 6px 0; width: 100%; display: block; }
+      .meta-row { display: flex; margin-bottom: 1px; font-weight: 500; }
       .watermark { position: fixed; top: 50%; left: 50%; transform: translate(-50%, -50%) rotate(-45deg); font-size: 48px; color: rgba(0,0,0,0.08); font-weight: bold; pointer-events: none; z-index: -1; }
     </style>
     </head><body>
@@ -362,45 +387,52 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
     for (let i = 1; i <= 5; i++) {
       let barisHeader = pengaturan[`Struk_H${i}`];
       if (barisHeader && barisHeader.trim() !== '') {
-        let styleCustom = (i === 1) ? 'font-size: 14px; font-weight: bold; margin-bottom: 3px;' : 'margin-bottom: 2px;';
+        let styleCustom = (i === 1) ? 'font-size: 16px; font-weight: 700; text-transform: uppercase; margin-bottom: 2px;' : 'font-size: 11px; font-weight: 500;';
         htmlContent += `<div class="center" style="${styleCustom}">${barisHeader}</div>`;
       }
     }
     
-    htmlContent += `<div class="center bold" style="margin-top: 5px; font-size: 13px;">${isRestok ? 'BUKTI RESTOK / PEMBELIAN' : 'BUKTI TRANSAKSI / STRUK'}</div>`;
+    htmlContent += `<div class="center bold" style="margin-top: 6px; font-size: 12px;">${isRestok ? 'BUKTI RESTOK / PEMBELIAN' : 'BUKTI TRANSAKSI / STRUK'}</div>`;
     htmlContent += `<div class="center" style="font-size: 10px; margin-top: 3px;">*** CETAK ULANG ***</div>`;
     htmlContent += '<div class="border-dashed"></div>';
     
-    // 2. Info Metadata (Sesuai Pengaturan)
-    const getLabel = (val: any, defaultLabel: string) => (val === undefined || val === null) ? defaultLabel : val;
-    
-    // Helper untuk merender baris. Jika label kosong (""), titik dua (:) juga akan dihilangkan
-    const renderRow = (labelSetting: any, defaultLabel: string, value: string) => {
-      let lbl = getLabel(labelSetting, defaultLabel);
-      let separator = lbl.trim() !== '' ? ': ' : '';
-      return `<tr><td style="width: 35%;">${lbl}</td><td>${separator}${value}</td></tr>`;
+    // 2. Info Metadata (Logika 4 Pilihan)
+    const renderMeta = (id: string, defaultLabel: string, value: string | number | null | undefined) => {
+        const mode = (pengaturan?.[`Struk_Mode_${id}`] as string) || 'show';
+        
+        // Sembunyikan
+        if (mode === 'hide') return '';
+        
+        // Hanya Value
+        if (mode === 'value_only') {
+            return `<div class="meta-row"><div>${value ?? '-'}</div></div>`;
+        }
+        
+        // Tampilkan Normal / Custom
+        const lbl = mode === 'custom' ? ((pengaturan?.[`Struk_Label_${id}`] ?? defaultLabel) as string) : defaultLabel;
+        const width = mode === 'custom' ? ((pengaturan?.[`Struk_Width_${id}`] || '35%') as string) : '35%';
+        
+        if (lbl.trim() === '') {
+            return `<div class="meta-row"><div>${value ?? '-'}</div></div>`;
+        }
+        return `<div class="meta-row"><div style="width: ${width}; flex-shrink: 0;">${lbl}</div><div>: ${value ?? '-'}</div></div>`;
     };
 
     let htmlInfo = '';
     
-    if (pengaturan.Struk_ShowID === 'true' || pengaturan.Struk_ShowID === true) {
-      htmlInfo += renderRow(pengaturan.Struk_Label_ID, 'No. TRX', trx.id_transaksi);
-    }
-    if (pengaturan.Struk_ShowWaktu === 'true' || pengaturan.Struk_ShowWaktu === true) {
-      let wkt = formatWaktu(detail.header.waktu || detail.header.created_at);
-      htmlInfo += renderRow(pengaturan.Struk_Label_Waktu, 'Waktu', wkt);
-    }
-    if (pengaturan.Struk_ShowKasir === 'true' || pengaturan.Struk_ShowKasir === true) {
-      let valKasir = isRestok ? (detail.header.nama_pengirim || '-') : (detail.header.id_karyawan || '-');
-      htmlInfo += renderRow(pengaturan.Struk_Label_Kasir, isRestok ? 'Pengirim' : 'Kasir', valKasir.substring(0, 15));
-    }
-    if (pengaturan.Struk_ShowPlg === 'true' || pengaturan.Struk_ShowPlg === true) {
-      let valPlg = isRestok ? (detail.header.id_supplier || '-') : (detail.header.nama_pelanggan || '-');
-      htmlInfo += renderRow(pengaturan.Struk_Label_Plg, isRestok ? 'Supplier' : 'Pelanggan', valPlg.substring(0, 15));
-    }
+    htmlInfo += renderMeta('ID', 'No. TRX', trx.id_transaksi);
+    
+    let wkt = formatWaktu(detail.header.waktu || detail.header.created_at);
+    htmlInfo += renderMeta('Waktu', 'Waktu', wkt);
+    
+    let valKasir = isRestok ? (detail.header.nama_pengirim || '-') : (detail.header.id_karyawan || '-');
+    htmlInfo += renderMeta('Kasir', isRestok ? 'Pengirim' : 'Kasir', valKasir.substring(0, 15));
+    
+    let valPlg = isRestok ? (detail.header.id_supplier || '-') : (detail.header.nama_pelanggan || '-');
+    htmlInfo += renderMeta('Plg', isRestok ? 'Supplier' : 'Pelanggan', valPlg.substring(0, 15));
 
     if (htmlInfo !== '') {
-      htmlContent += `<table>${htmlInfo}</table><div class="border-dashed"></div>`;
+      htmlContent += `<div>${htmlInfo}</div><div class="border-dashed"></div>`;
     }
 
     // 3. Item Barang
@@ -450,7 +482,7 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
     for (let i = 1; i <= 3; i++) {
       let barisFooter = pengaturan[`Struk_F${i}`];
       if (barisFooter && barisFooter.trim() !== '') {
-        htmlContent += `<div class="center" style="margin-bottom: 2px;">${barisFooter}</div>`;
+        htmlContent += `<div class="center" style="margin-bottom: 2px; font-size: 11px; font-weight: 500;">${barisFooter}</div>`;
       }
     }
 
@@ -461,7 +493,7 @@ export default function JurnalTransaksi({ onClose, pengaturan: pengaturanProp }:
     if ((qr1Data && qr1Data.trim() !== '') || (qr2Data && qr2Data.trim() !== '')) {
       htmlContent += '<div class="border-dashed"></div><div style="display: flex; justify-content: space-around; text-align: center; gap: 10px; margin-top: 5px;">';
       
-      const fallbackQR = `this.outerHTML='<div style=\\'width:75px; height:75px; margin:0 auto; border:1px dashed #000; display:flex; align-items:center; justify-content:center; font-size:9px; font-style:italic;\\'>pratinjau tidak tersedia</div>'`;
+      const fallbackQR = `this.outerHTML='<div style=\\'width:75px; height:75px; margin:0 auto; border:1px dashed #000; display:flex; align-items:center; justify-content:center; font-size:9px; font-style:italic;\\'>Pratinjau QrCode</div>'`;
 
       if (qr1Data && qr1Data.trim() !== '') {
         let apiQr1 = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qr1Data)}`;

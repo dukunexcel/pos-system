@@ -27,6 +27,37 @@ const DEFAULT_SANDI: Record<string, string> = {
   Sandi_Y: '', Sandi_Z: 'Pemberian Laba Bersih'
 };
 
+const ClearableInput = ({ name, value, onChange, placeholder, disabled, extraClass = "" }: {
+  name: string;
+  value?: string;
+  onChange: (e: any) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  extraClass?: string;
+}) => (
+  <div className={`relative ${extraClass}`}>
+    <input
+      type="text"
+      name={name}
+      value={value || ''}
+      onChange={onChange}
+      disabled={disabled}
+      placeholder={placeholder}
+      className={`w-full p-2 pr-8 border border-footer2/30 rounded text-xs font-mono focus:outline-none focus:border-header1 ${disabled ? 'bg-bgutama/50 text-gray-400' : 'bg-white'}`}
+    />
+    {value && !disabled && (
+      <button
+        type="button"
+        onClick={() => onChange({ target: { name, value: '' } })}
+        className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full bg-footer2/20 text-footer2 hover:bg-red-500 hover:text-white transition-colors text-[10px] font-bold"
+        title="Bersihkan"
+      >
+        ✕
+      </button>
+    )}
+  </div>
+);
+
 export default function Pengaturan({ onClose }: { onClose: () => void }) {
   const [activeTab, setActiveTab] = useState('toko'); 
   const [loading, setLoading] = useState(true);
@@ -492,53 +523,269 @@ return (
         {activeTab === 'struk' && (
           <div className="space-y-6">
             <h3 className="text-lg font-black text-header1 border-b border-footer2/20 pb-2">Konfigurasi Struk Termal</h3>
-            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
-              
-              <div className="flex flex-col gap-3">
-                <div className="bg-white p-3 rounded-lg border border-footer2/30 shadow-sm grid grid-cols-2 gap-2">
-                  <div><label className="text-xs font-bold text-footer2 block mb-1">Ukuran Kertas</label><select name="Struk_Kertas" value={formData.Struk_Kertas || '58mm'} onChange={handleChange} className="w-full p-2 border border-footer2/30 rounded text-xs font-bold bg-bgutama focus:outline-none"><option value="58mm">58 mm (Kecil)</option><option value="80mm">80 mm (Besar)</option></select></div>
-                  <div><label className="text-xs font-bold text-footer2 block mb-1">Ukuran Font</label><select name="Struk_FontSize" value={formData.Struk_FontSize || '12px'} onChange={handleChange} className="w-full p-2 border border-footer2/30 rounded text-xs font-bold bg-bgutama focus:outline-none"><option value="10px">10 px (Kecil)</option><option value="12px">12 px (Normal)</option><option value="14px">14 px (Besar)</option></select></div>
+            
+            {/* --- KOMPONEN BANTUAN UNTUK INPUT DENGAN TOMBOL CLEAR INSTAN --- */}
+            {(() => {
+              const ClearableInput = ({ name, value, onChange, placeholder, disabled, extraClass = "" }: { name: string; value: string; onChange: (e: any) => void; placeholder?: string; disabled?: boolean; extraClass?: string }) => (
+                <div className={`relative ${extraClass}`}>
+                  <input 
+                    type="text" 
+                    name={name} 
+                    value={value || ''} 
+                    onChange={onChange} 
+                    disabled={disabled} 
+                    placeholder={placeholder} 
+                    className={`w-full p-2 pr-8 border border-footer2/30 rounded text-xs font-mono focus:outline-none focus:border-header1 ${disabled ? 'bg-bgutama/50 text-gray-400' : 'bg-white'}`} 
+                  />
+                  {value && !disabled && (
+                    <button 
+                      type="button" 
+                      onClick={() => onChange({ target: { name, value: '' } })}
+                      className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full bg-footer2/20 text-footer2 hover:bg-red-500 hover:text-white transition-colors text-[10px] font-bold"
+                      title="Bersihkan"
+                    >
+                      ✕
+                    </button>
+                  )}
                 </div>
-                <div className="bg-white p-3 rounded-lg border border-footer2/30 shadow-sm"><label className="text-xs font-bold text-footer2 block mb-1">Format Waktu</label><select name="Struk_FormatWaktu" value={formData.Struk_FormatWaktu || 'DD/MM/YYYY HH:mm'} onChange={handleChange} className="w-full p-2 border border-footer2/30 rounded text-xs font-bold bg-bgutama focus:outline-none"><option value="DD/MM/YYYY HH:mm">01/08/2026 14:30 (Ringkas)</option><option value="DD-MM-YYYY | HH:mm:ss">01-08-2026 | 14:30:15 (Lengkap)</option></select></div>
-                
-                <div className="bg-white p-4 rounded-lg border border-footer2/30 shadow-sm flex flex-col gap-2">
-                  <div className="flex justify-between items-center mb-1"><span className="text-sm font-bold text-header1">Header Struk</span><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="Struk_Otomatis" checked={formData.Struk_Otomatis === 'true'} onChange={handleAutoHeaderStruk} className="w-4 h-4 accent-header1" /><span className="text-[10px] font-bold text-footer2 uppercase">Pakai Info Toko</span></label></div>
-                  <input type="text" name="Struk_H1" value={formData.Struk_H1 || ''} onChange={handleChange} disabled={formData.Struk_Otomatis === 'true'} placeholder="Baris 1" className="w-full p-2 border border-footer2/30 rounded text-xs font-mono" />
-                  <input type="text" name="Struk_H2" value={formData.Struk_H2 || ''} onChange={handleChange} disabled={formData.Struk_Otomatis === 'true'} placeholder="Baris 2" className="w-full p-2 border border-footer2/30 rounded text-xs font-mono" />
-                  <input type="text" name="Struk_H3" value={formData.Struk_H3 || ''} onChange={handleChange} disabled={formData.Struk_Otomatis === 'true'} placeholder="Baris 3" className="w-full p-2 border border-footer2/30 rounded text-xs font-mono" />
-                  <input type="text" name="Struk_H4" value={formData.Struk_H4 || ''} onChange={handleChange} placeholder="Baris 4 (Opsional)" className="w-full p-2 border border-footer2/30 rounded text-xs font-mono" />
-                  <input type="text" name="Struk_H5" value={formData.Struk_H5 || ''} onChange={handleChange} placeholder="Baris 5 (Opsional)" className="w-full p-2 border border-footer2/30 rounded text-xs font-mono" />
-                </div>
-              </div>
+              );
 
-              <div className="flex flex-col gap-3">
-                <div className="bg-white p-4 rounded-lg border border-footer2/30 shadow-sm">
-                  <span className="text-sm font-bold text-header1 block mb-2">Metadata & Label</span>
+              return (
+                <div className="flex flex-col lg:flex-row gap-6 items-start">
+                  
+                  {/* --- KIRI: FORM PENGATURAN --- */}
+                  <div className="flex-1 w-full grid grid-cols-1 gap-6">
+                    
+                    {/* 1. Pengaturan Dasar */}
+                    <div className="flex flex-col gap-3">
+                      <div className="bg-white p-3 rounded-lg border border-footer2/30 shadow-sm grid grid-cols-2 gap-4">
+                        <div>
+                          <label className="text-xs font-bold text-footer2 block mb-1">Ukuran Kertas</label>
+                          <select name="Struk_Kertas" value={formData.Struk_Kertas || '58mm'} onChange={handleChange} className="w-full p-2 border border-footer2/30 rounded text-xs font-bold bg-bgutama focus:outline-none">
+                            <option value="58mm">58 mm (Kecil)</option>
+                            <option value="80mm">80 mm (Besar)</option>
+                          </select>
+                          <p className="text-[9px] text-footer2/70 mt-1 italic">ⓘ Lebar 80mm = 350px, 58mm = 280px.</p>
+                        </div>
+                        <div>
+                          <label className="text-xs font-bold text-footer2 block mb-1">Ukuran Font</label>
+                          <select name="Struk_FontSize" value={formData.Struk_FontSize || '12px'} onChange={handleChange} className="w-full p-2 border border-footer2/30 rounded text-xs font-bold bg-bgutama focus:outline-none">
+                            <option value="10px">10 px (Kecil)</option>
+                            <option value="12px">12 px (Normal)</option>
+                            <option value="13px">13 px (Ideal)</option>
+                            <option value="14px">14 px (Besar)</option>
+                          </select>
+                          <p className="text-[9px] text-footer2/70 mt-1 italic leading-tight">ⓘ Semakin besar px, teks semakin padat.</p>
+                        </div>
+                      </div>
+                      
+                      <div className="bg-white p-3 rounded-lg border border-footer2/30 shadow-sm">
+                        <label className="text-xs font-bold text-footer2 block mb-1">Format Waktu</label>
+                        <select name="Struk_FormatWaktu" value={formData.Struk_FormatWaktu || 'DD/MM/YYYY HH:mm'} onChange={handleChange} className="w-full p-2 border border-footer2/30 rounded text-xs font-bold bg-bgutama focus:outline-none">
+                          <option value="DD/MM/YYYY HH:mm">01/08/2026 14:30 (Ringkas)</option>
+                          <option value="DD-MM-YYYY | HH:mm:ss">01-08-2026 | 14:30:15 (Lengkap)</option>
+                        </select>
+                      </div>
+                      
+                      <div className="bg-white p-4 rounded-lg border border-footer2/30 shadow-sm flex flex-col gap-2">
+                        <div className="flex justify-between items-center mb-1"><span className="text-sm font-bold text-header1">Header Struk</span><label className="flex items-center gap-2 cursor-pointer"><input type="checkbox" name="Struk_Otomatis" checked={formData.Struk_Otomatis === 'true'} onChange={handleAutoHeaderStruk} className="w-4 h-4 accent-header1" /><span className="text-[10px] font-bold text-footer2 uppercase">Pakai Info Toko</span></label></div>
+                        <ClearableInput name="Struk_H1" value={formData.Struk_H1} onChange={handleChange} disabled={formData.Struk_Otomatis === 'true'} placeholder="Baris 1 (Cth: NAMA TOKO)" />
+                        <ClearableInput name="Struk_H2" value={formData.Struk_H2} onChange={handleChange} disabled={formData.Struk_Otomatis === 'true'} placeholder="Baris 2 (Cth: Alamat)" />
+                        <ClearableInput name="Struk_H3" value={formData.Struk_H3} onChange={handleChange} disabled={formData.Struk_Otomatis === 'true'} placeholder="Baris 3 (Cth: No Telp)" />
+                        <ClearableInput name="Struk_H4" value={formData.Struk_H4} onChange={handleChange} placeholder="Baris 4 (Opsional)" />
+                        <ClearableInput name="Struk_H5" value={formData.Struk_H5} onChange={handleChange} placeholder="Baris 5 (Opsional)" />
+                      </div>
+                    </div>
+
+                    {/* 2. Metadata */}
+                    <div className="bg-white p-4 rounded-lg border border-footer2/30 shadow-sm">
+                      <span className="text-sm font-bold text-header1 block mb-2">Metadata & Label</span>
+                      <div className="flex flex-col gap-2">
+                        {[
+                          { id: 'ID', name: 'No. TRX', ph: 'Cth: TRX:' },
+                          { id: 'Waktu', name: 'Waktu', ph: 'Cth: Tgl:' },
+                          { id: 'Kasir', name: 'Kasir', ph: 'Cth: Ksr:' },
+                          { id: 'Plg', name: 'Pelanggan', ph: 'Cth: Plg:' }
+                        ].map((meta) => (
+                          <div key={meta.id} className="flex flex-col gap-2 bg-bgutama/50 p-2 rounded border border-footer2/20">
+                            <div className="flex items-center justify-between">
+                              <span className="text-xs font-bold text-footer2">{meta.name}</span>
+                              <select 
+                                name={`Struk_Mode_${meta.id}`} 
+                                value={formData[`Struk_Mode_${meta.id}`] || 'show'} 
+                                onChange={handleChange} 
+                                className="p-1 border border-footer2/30 rounded text-xs font-bold bg-white focus:outline-none"
+                              >
+                                <option value="show">Tampilkan</option>
+                                <option value="custom">Tampilkan (Custom)</option>
+                                <option value="value_only">Tampilkan (Tanpa Label)</option>
+                                <option value="hide">Sembunyikan</option>
+                              </select>
+                            </div>
+                            {formData[`Struk_Mode_${meta.id}`] === 'custom' && (
+                              <div className="flex gap-2">
+                                <ClearableInput name={`Struk_Label_${meta.id}`} value={formData[`Struk_Label_${meta.id}`]} onChange={handleChange} placeholder={meta.ph} extraClass="flex-1" />
+                                <ClearableInput name={`Struk_Width_${meta.id}`} value={formData[`Struk_Width_${meta.id}`]} onChange={handleChange} placeholder="Lebar (35%)" extraClass="w-1/3" />
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* 3. Footer */}
+                    <div className="bg-white p-4 rounded-lg border border-footer2/30 shadow-sm flex flex-col gap-2">
+                      <span className="text-sm font-bold text-header1 mb-1">Footer & Pesan (Bawah)</span>
+                      <ClearableInput name="Struk_F1" value={formData.Struk_F1} onChange={handleChange} placeholder="Baris 1 (Cth: Terima Kasih)" />
+                      <ClearableInput name="Struk_F2" value={formData.Struk_F2} onChange={handleChange} placeholder="Baris 2 (Cth: Barang yang dibeli...)" />
+                      <ClearableInput name="Struk_F3" value={formData.Struk_F3} onChange={handleChange} placeholder="Baris 3" />
+                    </div>
+                  </div>
+
+                  {/* --- KANAN: LIVE PREVIEW --- */}
+                  <div className="lg:w-[400px] w-full flex flex-col items-center bg-gray-200 p-4 rounded-lg border border-footer2/30 sticky top-4">
+                    <span className="text-sm font-bold text-header1 mb-3 flex items-center gap-2">
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" /></svg>
+                      Live Preview Struk
+                    </span>
+                    
+                    {/* Kontainer Kertas Struk */}
+                    <div 
+                      className="bg-white shadow-xl text-black overflow-hidden transition-all duration-300"
+                      style={{ 
+                        width: formData.Struk_Kertas === '80mm' ? '350px' : '280px',
+                        fontSize: formData.Struk_FontSize || '13px',
+                        fontFamily: "'Roboto Mono', Courier, monospace",
+                        padding: '15px 10px',
+                        lineHeight: '1.2'
+                      }}
+                    >
+                      {/* Preview Header */}
+                      {[1, 2, 3, 4, 5].map((i) => {
+                        let baris = formData[`Struk_H${i}`];
+                        if (baris && baris.trim() !== '') {
+                          return <div key={i} className="text-center" style={i === 1 ? {fontSize: '16px', fontWeight: 700, textTransform: 'uppercase', marginBottom: '2px'} : {fontSize: '11px', fontWeight: 500, marginBottom: '2px'}}>{baris}</div>;
+                        }
+                        return null;
+                      })}
+
+                      <div className="text-center font-bold" style={{marginTop: '6px', fontSize: '12px'}}>BUKTI TRANSAKSI</div>
+                      <div className="border-b border-dashed border-black w-full" style={{margin: '6px 0'}}></div>
+
+                      {/* Preview Metadata */}
+                      {[
+                        { id: 'ID', default: 'No. TRX', val: 'TRX-999' },
+                        { id: 'Waktu', default: 'Waktu', val: '31/08/2026 21:21' },
+                        { id: 'Kasir', default: 'Kasir', val: 'Admin Kasir' },
+                        { id: 'Plg', default: 'Pelanggan', val: 'Umum' }
+                      ].map((meta) => {
+                        const mode = formData[`Struk_Mode_${meta.id}`] || 'show';
+                        if (mode === 'hide') return null;
+                        
+                        if (mode === 'value_only') {
+                          return <div key={meta.id} className="flex" style={{marginBottom: '1px', fontWeight: 500}}><div>{meta.val}</div></div>;
+                        }
+                        
+                        const lbl = mode === 'custom' ? (formData[`Struk_Label_${meta.id}`] ?? meta.default) : meta.default;
+                        const width = mode === 'custom' ? (formData[`Struk_Width_${meta.id}`] || '35%') : '35%';
+                        
+                        if (lbl.trim() === '') {
+                           return <div key={meta.id} className="flex" style={{marginBottom: '1px', fontWeight: 500}}><div>{meta.val}</div></div>;
+                        }
+
+                        return (
+                          <div key={meta.id} className="flex" style={{marginBottom: '1px', fontWeight: 500}}>
+                            <div style={{width: width, flexShrink: 0}}>{lbl}</div>
+                            <div>: {meta.val}</div>
+                          </div>
+                        );
+                      })}
+
+                      <div className="border-b border-dashed border-black w-full" style={{margin: '6px 0'}}></div>
+                      
+                      {/* Preview Item (Dummy) */}
+                      <table style={{width: '100%', borderCollapse: 'collapse', fontWeight: 600, fontSize: 'inherit'}}>
+                        <tbody>
+                          <tr><td colSpan={2} style={{fontWeight: 700}}>Nasi Goreng Spesial</td></tr>
+                          <tr><td>1 x 25.000</td><td style={{textAlign: 'right'}}>25.000</td></tr>
+                        </tbody>
+                      </table>
+                      
+                      <div className="border-b border-dashed border-black w-full" style={{margin: '6px 0'}}></div>
+                      
+                      {/* Preview Total (Dummy) */}
+                      <table style={{width: '100%', borderCollapse: 'collapse', fontWeight: 600, fontSize: 'inherit'}}>
+                        <tbody>
+                          <tr><td style={{fontWeight: 700}}>TOTAL</td><td style={{textAlign: 'right', fontWeight: 700}}>25.000</td></tr>
+                        </tbody>
+                      </table>
+
+                      <div className="border-b border-dashed border-black w-full" style={{margin: '6px 0'}}></div>
+
+                      {/* Preview Footer */}
+                      {[1, 2, 3].map((i) => {
+                        let baris = formData[`Struk_F${i}`];
+                        if (baris && baris.trim() !== '') {
+                          return <div key={i} className="text-center" style={{marginBottom: '2px', fontSize: '11px', fontWeight: 500}}>{baris}</div>;
+                        }
+                        return null;
+                      })}
+
+                      {/* Preview QR Code Terpusat / Berdampingan */}
+                      {(formData.Struk_QR1_Data || formData.Struk_QR2_Data) && (
+                        <>
+                          <div className="border-b border-dashed border-black w-full" style={{margin: '6px 0'}}></div>
+                          <div style={{ 
+                            display: 'flex', 
+                            justifyContent: (formData.Struk_QR1_Data && formData.Struk_QR2_Data) ? 'space-between' : 'center', 
+                            textAlign: 'center', 
+                            gap: '10px', 
+                            marginTop: '5px' 
+                          }}>
+                            {formData.Struk_QR1_Data && (
+                              <div style={{ flex: (formData.Struk_QR1_Data && formData.Struk_QR2_Data) ? '0 1 48%' : 'none' }}>
+                                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(formData.Struk_QR1_Data)}`} width="75" height="75" style={{margin: '0 auto'}} alt="QR 1" />
+                                <div style={{fontSize: '9px', marginTop: '2px', wordBreak: 'break-word'}}>{formData.Struk_QR1_Label || ''}</div>
+                              </div>
+                            )}
+                            {formData.Struk_QR2_Data && (
+                              <div style={{ flex: (formData.Struk_QR1_Data && formData.Struk_QR2_Data) ? '0 1 48%' : 'none' }}>
+                                <img src={`https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(formData.Struk_QR2_Data)}`} width="75" height="75" style={{margin: '0 auto'}} alt="QR 2" />
+                                <div style={{fontSize: '9px', marginTop: '2px', wordBreak: 'break-word'}}>{formData.Struk_QR2_Label || ''}</div>
+                              </div>
+                            )}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  </div>
+
+                </div>
+              );
+            })()}
+
+            {/* Bagian QR Code (Input Form diletakkan di bawah) */}
+            <div className="bg-white p-4 rounded-lg border border-footer2/30 shadow-sm mt-6">
+              <span className="text-sm font-bold text-header1 block mb-3">QR Code Promosi / Info</span>
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="p-3 bg-bgutama/50 rounded border border-footer2/20">
+                  <label className="text-xs font-bold block mb-2">QR Code 1</label>
                   <div className="flex flex-col gap-2">
-                    <div className="flex items-center gap-2 bg-bgutama/50 p-2 rounded border border-footer2/20"><input type="checkbox" name="Struk_ShowID" checked={formData.Struk_ShowID === 'true'} onChange={handleCheck} className="accent-header1 w-4 h-4 shrink-0" /><span className="text-xs font-bold w-20">No. TRX</span><input type="text" name="Struk_Label_ID" value={formData.Struk_Label_ID || ''} onChange={handleChange} placeholder="Cth: ID / No:" className="flex-1 p-1.5 border border-footer2/30 rounded text-xs font-mono" /></div>
-                    <div className="flex items-center gap-2 bg-bgutama/50 p-2 rounded border border-footer2/20"><input type="checkbox" name="Struk_ShowWaktu" checked={formData.Struk_ShowWaktu === 'true'} onChange={handleCheck} className="accent-header1 w-4 h-4 shrink-0" /><span className="text-xs font-bold w-20">Waktu</span><input type="text" name="Struk_Label_Waktu" value={formData.Struk_Label_Waktu || ''} onChange={handleChange} placeholder="Cth: Tgl / Wkt:" className="flex-1 p-1.5 border border-footer2/30 rounded text-xs font-mono" /></div>
-                    <div className="flex items-center gap-2 bg-bgutama/50 p-2 rounded border border-footer2/20"><input type="checkbox" name="Struk_ShowKasir" checked={formData.Struk_ShowKasir === 'true'} onChange={handleCheck} className="accent-header1 w-4 h-4 shrink-0" /><span className="text-xs font-bold w-20">Kasir</span><input type="text" name="Struk_Label_Kasir" value={formData.Struk_Label_Kasir || ''} onChange={handleChange} placeholder="Cth: Ksr:" className="flex-1 p-1.5 border border-footer2/30 rounded text-xs font-mono" /></div>
-                    <div className="flex items-center gap-2 bg-bgutama/50 p-2 rounded border border-footer2/20"><input type="checkbox" name="Struk_ShowPlg" checked={formData.Struk_ShowPlg === 'true'} onChange={handleCheck} className="accent-header1 w-4 h-4 shrink-0" /><span className="text-xs font-bold w-20">Pelanggan</span><input type="text" name="Struk_Label_Plg" value={formData.Struk_Label_Plg || ''} onChange={handleChange} placeholder="Cth: Plg:" className="flex-1 p-1.5 border border-footer2/30 rounded text-xs font-mono" /></div>
+                    {/* Menggunakan helper yang sama agar ada tombol hapus (clear) */}
+                    <ClearableInput name="Struk_QR1_Label" value={formData.Struk_QR1_Label} onChange={handleChange} placeholder="Label Teks" />
+                    <ClearableInput name="Struk_QR1_Data" value={formData.Struk_QR1_Data} onChange={handleChange} placeholder="Data URL" />
                   </div>
                 </div>
-
-                <div className="bg-white p-4 rounded-lg border border-footer2/30 shadow-sm flex flex-col gap-2">
-                  <span className="text-sm font-bold text-header1 mb-1">Footer & Pesan (Bawah)</span>
-                  <input type="text" name="Struk_F1" value={formData.Struk_F1 || ''} onChange={handleChange} placeholder="Baris 1" className="w-full p-2 border border-footer2/30 rounded text-xs font-mono" />
-                  <input type="text" name="Struk_F2" value={formData.Struk_F2 || ''} onChange={handleChange} placeholder="Baris 2" className="w-full p-2 border border-footer2/30 rounded text-xs font-mono" />
-                  <input type="text" name="Struk_F3" value={formData.Struk_F3 || ''} onChange={handleChange} placeholder="Baris 3" className="w-full p-2 border border-footer2/30 rounded text-xs font-mono" />
+                <div className="p-3 bg-bgutama/50 rounded border border-footer2/20">
+                  <label className="text-xs font-bold block mb-2">QR Code 2</label>
+                  <div className="flex flex-col gap-2">
+                    <ClearableInput name="Struk_QR2_Label" value={formData.Struk_QR2_Label} onChange={handleChange} placeholder="Label Teks" />
+                    <ClearableInput name="Struk_QR2_Data" value={formData.Struk_QR2_Data} onChange={handleChange} placeholder="Data URL" />
+                  </div>
                 </div>
               </div>
-
-              <div className="md:col-span-2 bg-white p-4 rounded-lg border border-footer2/30 shadow-sm">
-                <span className="text-sm font-bold text-header1 block mb-3">QR Code Promosi / Info</span>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                  <div className="p-3 bg-bgutama/50 rounded border border-footer2/20"><label className="text-xs font-bold block mb-1">QR Code 1</label><input type="text" name="Struk_QR1_Label" value={formData.Struk_QR1_Label || ''} onChange={handleChange} placeholder="Label Teks" className="w-full p-2 mb-2 border rounded text-xs" /><input type="text" name="Struk_QR1_Data" value={formData.Struk_QR1_Data || ''} onChange={handleChange} placeholder="Data URL" className="w-full p-2 border rounded text-xs" /></div>
-                  <div className="p-3 bg-bgutama/50 rounded border border-footer2/20"><label className="text-xs font-bold block mb-1">QR Code 2</label><input type="text" name="Struk_QR2_Label" value={formData.Struk_QR2_Label || ''} onChange={handleChange} placeholder="Label Teks" className="w-full p-2 mb-2 border rounded text-xs" /><input type="text" name="Struk_QR2_Data" value={formData.Struk_QR2_Data || ''} onChange={handleChange} placeholder="Data URL" className="w-full p-2 border rounded text-xs" /></div>
-                </div>
-              </div>
-
             </div>
+
           </div>
         )}
 
@@ -723,7 +970,7 @@ return (
         )}
       </main>
 
-{/* =========================================
+      {/* =========================================
           MODAL FORM PENGGUNA (AUTH)
       ========================================= */}
       {showAuthModal && (

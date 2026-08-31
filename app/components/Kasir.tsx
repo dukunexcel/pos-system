@@ -1037,20 +1037,22 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
   // --- FUNGSI CETAK STRUK KASIR ---
   const cetakStrukKasir = (idTrx: string, dataTrx: any, cartData: any[]) => {
     const lebarKertas = (pengaturan?.Struk_Kertas === '80mm') ? '350px' : '280px';
-    const fontSizeStruk = pengaturan?.Struk_FontSize || '12px';
+    const fontSizeStruk = pengaturan?.Struk_FontSize || '13px';
     
     const printWindow = window.open('', '_blank', 'width=400,height=600');
     if (!printWindow) return;
 
     let htmlContent = `
     <html><head><title>Bukti Transaksi ${idTrx}</title>
+    <link href="https://fonts.googleapis.com/css2?family=Roboto+Mono:wght@500;600;700&display=swap" rel="stylesheet">
     <style>
         @page { margin: 0; }
-        body { font-family: 'Courier New', Courier, monospace; width: 100%; max-width: ${lebarKertas}; margin: 0 auto; padding: 10px; color: #000; font-size: ${fontSizeStruk}; }
-        .center { text-align: center; } .right { text-align: right; } .bold { font-weight: bold; }
-        table { width: 100%; border-collapse: collapse; font-size: inherit; }
-        td { vertical-align: top; padding: 2px 0; }
-        .border-dashed { border-bottom: 1px dashed #000; margin: 8px 0; }
+        body { font-family: 'Roboto Mono', monospace; width: 100%; max-width: ${lebarKertas}; margin: 0 auto; padding: 15px 10px; color: #000; font-size: ${fontSizeStruk}; line-height: 1.2; }
+        .center { text-align: center; } .right { text-align: right; } .bold { font-weight: 700; }
+        table { width: 100%; border-collapse: collapse; font-size: inherit; font-weight: 600; }
+        td { vertical-align: top; padding: 1px 0; }
+        .border-dashed { border-bottom: 1px dashed #000; margin: 6px 0; width: 100%; display: block; }
+        .meta-row { display: flex; margin-bottom: 1px; font-weight: 500; }
     </style>
     </head><body>
     `;
@@ -1058,44 +1060,50 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     for (let i = 1; i <= 5; i++) {
         let barisHeader = pengaturan[`Struk_H${i}`];
         if (barisHeader && barisHeader.trim() !== '') {
-        let styleCustom = (i === 1) ? 'font-size: 14px; font-weight: bold; margin-bottom: 3px;' : 'margin-bottom: 2px;';
-        htmlContent += `<div class="center" style="${styleCustom}">${barisHeader}</div>`;
+            let styleCustom = (i === 1) ? 'font-size: 16px; font-weight: 700; text-transform: uppercase; margin-bottom: 2px;' : 'font-size: 11px; font-weight: 500;';
+            htmlContent += `<div class="center" style="${styleCustom}">${barisHeader}</div>`;
         }
     }
     
-    const judulStruk = dataTrx.isRefund ? 'BUKTI RETUR / PENGEMBALIAN' : 'BUKTI TRANSAKSI / STRUK';
-    htmlContent += `<div class="center bold" style="margin-top: 5px; font-size: 13px;">${judulStruk}</div>`;
+    const judulStruk = dataTrx.isRefund ? 'BUKTI RETUR' : 'BUKTI TRANSAKSI';
+    htmlContent += `<div class="center bold" style="margin-top: 6px; font-size: 12px;">${judulStruk}</div>`;
     htmlContent += '<div class="border-dashed"></div>';
     
-    const getLabel = (val: any, defaultLabel: string) => (val === undefined || val === null) ? defaultLabel : val;
-    
-    const renderRow = (labelSetting: any, defaultLabel: string, value: string) => {
-        let lbl = getLabel(labelSetting, defaultLabel);
-        let separator = lbl.trim() !== '' ? ': ' : '';
-        return `<tr><td style="width: 35%;">${lbl}</td><td>${separator}${value}</td></tr>`;
+    // Logika 4 Pilihan Metadata
+    const renderMeta = (id: string, defaultLabel: string, value: string | number) => {
+        const mode = pengaturan[`Struk_Mode_${id}`] || 'show';
+        const valueText = String(value);
+
+        // 1. Jika disembunyikan
+        if (mode === 'hide') return '';
+
+        // 2. Jika HANYA menampilkan value tanpa label
+        if (mode === 'value_only') {
+            return `<div class="meta-row"><div>${valueText}</div></div>`;
+        }
+
+        // 3. Logika untuk mode Tampilkan & Custom
+        const lbl = mode === 'custom' ? (pengaturan[`Struk_Label_${id}`] ?? defaultLabel) : defaultLabel;
+        const width = mode === 'custom' ? (pengaturan[`Struk_Width_${id}`] || '35%') : '35%';
+
+        // Antisipasi: jika mode custom dipilih tapi input label sengaja dikosongkan spasi saja
+        if (lbl.trim() === '') {
+            return `<div class="meta-row"><div>${valueText}</div></div>`;
+        }
+
+        // Tampilan normal dengan label & titik dua (: )
+        return `<div class="meta-row"><div style="width: ${width}; flex-shrink: 0;">${lbl}</div><div>: ${valueText}</div></div>`;
     };
 
     let htmlInfo = '';
-    
-    if (pengaturan.Struk_ShowID === 'true' || pengaturan.Struk_ShowID === true) {
-        htmlInfo += renderRow(pengaturan.Struk_Label_ID, 'No. TRX', idTrx);
-    }
-    
-    if (pengaturan.Struk_ShowWaktu === 'true' || pengaturan.Struk_ShowWaktu === true) {
-        const waktuSekarang = new Date().toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
-        htmlInfo += renderRow(pengaturan.Struk_Label_Waktu, 'Waktu', waktuSekarang);
-    }
-    
-    if (pengaturan.Struk_ShowKasir === 'true' || pengaturan.Struk_ShowKasir === true) {
-        htmlInfo += renderRow(pengaturan.Struk_Label_Kasir, 'Kasir', dataTrx.namaKasir?.substring(0, 15) || '-');
-    }
-    
-    if (pengaturan.Struk_ShowPlg === 'true' || pengaturan.Struk_ShowPlg === true) {
-        htmlInfo += renderRow(pengaturan.Struk_Label_Plg, 'Pelanggan', dataTrx.namaPelanggan?.substring(0, 15) || '-');
-    }
-    
+    htmlInfo += renderMeta('ID', 'No. TRX', idTrx);
+    const waktuSekarang = new Date().toLocaleString('id-ID', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+    htmlInfo += renderMeta('Waktu', 'Waktu', waktuSekarang);
+    htmlInfo += renderMeta('Kasir', 'Kasir', dataTrx.namaKasir?.substring(0, 15) || '-');
+    htmlInfo += renderMeta('Plg', 'Pelanggan', dataTrx.namaPelanggan?.substring(0, 15) || '-');
+
     if (htmlInfo !== '') {
-        htmlContent += `<table>${htmlInfo}</table><div class="border-dashed"></div>`;
+        htmlContent += `<div>${htmlInfo}</div><div class="border-dashed"></div>`;
     }
 
     htmlContent += '<table>';
@@ -1130,7 +1138,7 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         <tr><td>Subtotal</td><td class="right">${subtotalBruto.toLocaleString('id-ID')}</td></tr>
         ${(dataTrx.diskon || 0) > 0 ? `<tr><td>Diskon</td><td class="right">-${dataTrx.diskon.toLocaleString('id-ID')}</td></tr>` : ''}
         ${(dataTrx.biaya_lain || 0) > 0 ? `<tr><td>Biaya Lain</td><td class="right">+${dataTrx.biaya_lain.toLocaleString('id-ID')}</td></tr>` : ''}
-        <tr><td class="bold">${dataTrx.isRefund ? 'TOTAL RETUR' : 'GRAND TOTAL'}</td><td class="right bold">${grandTotal.toLocaleString('id-ID')}</td></tr>
+        <tr><td class="bold">${dataTrx.isRefund ? 'TOTAL RETUR' : 'TOTAL'}</td><td class="right bold">${grandTotal.toLocaleString('id-ID')}</td></tr>
         <tr><td>Metode</td><td class="right">${dataTrx.metodeBayar || '-'}</td></tr>
         <tr><td>Status</td><td class="right">${dataTrx.status || 'Lunas'}</td></tr>
         <tr><td>Dibayar</td><td class="right">${nominalDibayar.toLocaleString('id-ID')}</td></tr>
@@ -1143,7 +1151,7 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     for (let i = 1; i <= 3; i++) {
         let barisFooter = pengaturan[`Struk_F${i}`];
         if (barisFooter && barisFooter.trim() !== '') {
-        htmlContent += `<div class="center" style="margin-bottom: 2px;">${barisFooter}</div>`;
+            htmlContent += `<div class="center" style="margin-bottom: 2px; font-size: 11px; font-weight: 500;">${barisFooter}</div>`;
         }
     }
 
@@ -1153,15 +1161,15 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     if ((qr1Data && qr1Data.trim() !== '') || (qr2Data && qr2Data.trim() !== '')) {
         htmlContent += '<div class="border-dashed"></div><div style="display: flex; justify-content: space-around; text-align: center; gap: 10px; margin-top: 5px;">';
         
-        const fallbackQR = `this.outerHTML='<div style=\\'width:75px; height:75px; margin:0 auto; border:1px dashed #000; display:flex; align-items:center; justify-content:center; font-size:9px; font-style:italic;\\'>pratinjau tidak tersedia</div>'`;
+        const fallbackQR = `this.outerHTML='<div style=\\'width:75px; height:75px; margin:0 auto; border:1px dashed #000; display:flex; align-items:center; justify-content:center; font-size:9px; font-style:italic;\\'>Pratinjau QrCode</div>'`;
 
         if (qr1Data && qr1Data.trim() !== '') {
-        let apiQr1 = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qr1Data)}`;
-        htmlContent += `<div style="flex: 1;"><img src="${apiQr1}" width="75" height="75" onerror="${fallbackQR}"><div style="font-size: 9px; margin-top: 2px;">${qr1Label || ''}</div></div>`;
+            let apiQr1 = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qr1Data)}`;
+            htmlContent += `<div style="flex: 1;"><img src="${apiQr1}" width="75" height="75" onerror="${fallbackQR}"><div style="font-size: 9px; margin-top: 2px;">${qr1Label || ''}</div></div>`;
         }
         if (qr2Data && qr2Data.trim() !== '') {
-        let apiQr2 = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qr2Data)}`;
-        htmlContent += `<div style="flex: 1;"><img src="${apiQr2}" width="75" height="75" onerror="${fallbackQR}"><div style="font-size: 9px; margin-top: 2px;">${qr2Label || ''}</div></div>`;
+            let apiQr2 = `https://api.qrserver.com/v1/create-qr-code/?size=100x100&data=${encodeURIComponent(qr2Data)}`;
+            htmlContent += `<div style="flex: 1;"><img src="${apiQr2}" width="75" height="75" onerror="${fallbackQR}"><div style="font-size: 9px; margin-top: 2px;">${qr2Label || ''}</div></div>`;
         }
         htmlContent += '</div>';
     }
