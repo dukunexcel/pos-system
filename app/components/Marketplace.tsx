@@ -218,7 +218,7 @@ export default function MarketplaceIntegrasi({ onClose, kasirId = 'OP-ONLINE' }:
     Swal.fire({ title: 'Menyimpan Transaksi...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
 
     try {
-      const res = await fetch('/api/marketplace/eksekusi', {
+      const res = await fetch('/api/marketplace', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ payload: dataAnalisis, kasirId })
