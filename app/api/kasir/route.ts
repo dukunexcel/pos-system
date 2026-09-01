@@ -39,6 +39,13 @@ function generateTransactionId(inisialKasir: string): string {
   return `${inisialKasir}-${timestamp}-${randomNum}`;
 }
 
+// Helper untuk generate ID Jurnal
+function generateJurnalId(): string {
+  const timestamp = new Date().toISOString().slice(2, 10).replace(/-/g, '');
+  const timeSuffix = Date.now().toString().slice(-6);
+  return `JRN-${timestamp}-${timeSuffix}`;
+}
+
 // Helper untuk mendapatkan inisial kasir
 async function getKasirInisial(idKasir?: string): Promise<string> {
   if (!idKasir || idKasir === 'TANPA_KASIR') {
@@ -64,75 +71,42 @@ async function getKasirInisial(idKasir?: string): Promise<string> {
   }
 }
 
-// Helper untuk menghitung HPP dan update stok
-function calculateHPPAndStock(item: CartItem, barang: any): {
-  hppTotal: number;
-  updatePayload: any;
-} {
-  const isRetur = item.qty < 0;
-  const qtyAbsolut = Math.abs(item.qty);
+// Helper untuk menulis jurnal
+async function tulisJurnal(
+  tipe: string,
+  kategori: string,
+  sandi: string,
+  keterangan: string,
+  nominal: number,
+  akunSumber: string,
+  akunTujuan: string,
+  referensi: string
+): Promise<boolean> {
+  const idJurnal = generateJurnalId();
   
-  let j1 = Number(barang.jumlah_1 || 0);
-  let m1 = Number(barang.modal_1 || 0);
-  let j2 = Number(barang.jumlah_2 || 0);
-  let m2 = Number(barang.modal_2 || 0);
-  let j3 = Number(barang.jumlah_3 || 0);
-  let m3 = Number(barang.modal_3 || 0);
+  const { error } = await supabase
+    .from('jurnal')
+    .insert([{
+      id: idJurnal,
+      waktu: new Date().toISOString(),
+      tipe: tipe,
+      kategori: kategori,
+      sandi: sandi,
+      keterangan: keterangan,
+      nominal: nominal,
+      akun_sumber: akunSumber,
+      akun_tujuan: akunTujuan,
+      referensi: referensi
+    }]);
 
-  let hppTotal = 0;
-  let updatePayload: any = {};
-
-  if (isRetur) {
-    const target = item.returTarget || 3; // Default ke stok ke-3
-    if (target === 1) {
-      hppTotal = -(qtyAbsolut * m1);
-      updatePayload.jumlah_1 = j1 + qtyAbsolut;
-    } else if (target === 2) {
-      hppTotal = -(qtyAbsolut * m2);
-      updatePayload.jumlah_2 = j2 + qtyAbsolut;
-    } else {
-      hppTotal = -(qtyAbsolut * m3);
-      updatePayload.jumlah_3 = j3 + qtyAbsolut;
-    }
-  } else {
-    let sisaPotong = item.qty;
-    
-    if (j1 > 0 && sisaPotong > 0) {
-      const potong = Math.min(j1, sisaPotong);
-      hppTotal += potong * m1;
-      updatePayload.jumlah_1 = j1 - potong;
-      sisaPotong -= potong;
-    }
-    
-    if (j2 > 0 && sisaPotong > 0) {
-      const potong = Math.min(j2, sisaPotong);
-      hppTotal += potong * m2;
-      updatePayload.jumlah_2 = j2 - potong;
-      sisaPotong -= potong;
-    }
-    
-    if (j3 > 0 && sisaPotong > 0) {
-      const potong = Math.min(j3, sisaPotong);
-      hppTotal += potong * m3;
-      updatePayload.jumlah_3 = j3 - potong;
-      sisaPotong -= potong;
-    }
-
-    // Jika stok tidak mencukupi
-    if (sisaPotong > 0) {
-      throw new Error(`Stok tidak mencukupi untuk ${item.nama}. Sisa dibutuhkan: ${sisaPotong}`);
-    }
+  if (error) {
+    console.error('Error menulis jurnal:', error);
+    // PERBAIKAN: Lempar error agar ditangkap oleh blok catch utama di fungsi POST
+    throw new Error(`Gagal insert Jurnal: ${error.message}`); 
   }
 
-  return { hppTotal, updatePayload };
-}
-
-// Helper untuk generate ID Detail
-function generateDetailId(isRetur: boolean, productId: string, index: number): string {
-  const prefix = isRetur ? 'B' : 'D';
-  const cleanProductId = productId.replace(/\s+/g, '');
-  const timeSuffix = Date.now().toString().slice(-4);
-  return `${prefix}-${cleanProductId}-${timeSuffix}-${index}`;
+  console.log(`Jurnal berhasil ditulis: ${idJurnal} - ${keterangan}`);
+  return true;
 }
 
 export async function POST(request: Request) {
@@ -162,16 +136,14 @@ export async function POST(request: Request) {
     }]);
     if (errHeader) throw errHeader;
     
-    // 3. OPTIMASI: Tarik semua stok barang sekaligus (Menghilangkan N+1 Query)
+    // 3. OPTIMASI: Tarik semua stok barang sekaligus
     const listQr = keranjangPos.map((item: any) => item.qr);
     const { data: brgList, error: errBrg } = await supabase.from('barang').select('*').in('qr', listQr);
     if (errBrg) throw errBrg;
 
-    // Buat kamus (Map) untuk pencarian cepat di memori
     const brgMap = new Map();
     brgList?.forEach(b => brgMap.set(b.qr, b));
 
-    // Siapkan array untuk Bulk Action
     const payloadDetailTransaksi = [];
     const payloadUpdateBarang = [];
 
@@ -189,7 +161,6 @@ export async function POST(request: Request) {
       
       let hppTotal = 0;
       
-      // Salin data barang lama untuk ditimpa dengan stok baru
       const barangUpdate = { ...brg };
 
       if (isRetur) {
@@ -220,7 +191,7 @@ export async function POST(request: Request) {
       });
     }
 
-    // Eksekusi Bulk Insert & Upsert ke Database secara Pararel
+    // Eksekusi Bulk Insert & Upsert
     const [resInsertDetail, resUpdateStok] = await Promise.all([
       payloadDetailTransaksi.length > 0 ? supabase.from('transaksi_detail').insert(payloadDetailTransaksi) : Promise.resolve({ error: null }),
       payloadUpdateBarang.length > 0 ? supabase.from('barang').upsert(payloadUpdateBarang, { onConflict: 'qr' }) : Promise.resolve({ error: null })
@@ -229,16 +200,73 @@ export async function POST(request: Request) {
     if (resInsertDetail.error) throw resInsertDetail.error;
     if (resUpdateStok.error) throw resUpdateStok.error;
 
-    // 4. Update Dompet
+    // 4. Update Dompet dan Tulis Jurnal
+    const isRefund = dataTrx.totalBelanja < 0;
+    const nominalTransaksi = Math.abs(dataTrx.totalBelanja);
+    
+    // Siapkan ID Pelanggan (Gunakan 'UMUM' jika idPelanggan kosong)
+    const idPelangganJurnal = dataTrx.idPelanggan || 'UMUM';
+    
     if (dataTrx.metodeBayar !== 'Piutang' && dataTrx.idDompet) {
-      const { data: domp } = await supabase.from('data_dompet').select('saldo_aktif').eq('id_dompet', dataTrx.idDompet).single();
-      if (domp) {
-        await supabase.from('data_dompet').update({ saldo_aktif: Number(domp.saldo_aktif) + dataTrx.totalBelanja }).eq('id_dompet', dataTrx.idDompet);
+      // Ambil data dompet
+      const { data: domp, error: errDomp } = await supabase
+        .from('data_dompet')
+        .select('*')
+        .eq('id_dompet', dataTrx.idDompet)
+        .single();
+        
+      if (errDomp) {
+        console.error('Error fetching dompet:', errDomp);
+        throw errDomp;
       }
+      
+      if (domp) {
+        const saldoSebelum = Number(domp.saldo_aktif || 0);
+        const saldoSesudah = saldoSebelum + dataTrx.totalBelanja;
+        
+        // Update saldo dompet
+        const { error: errUpdateDomp } = await supabase
+          .from('data_dompet')
+          .update({ saldo_aktif: saldoSesudah })
+          .eq('id_dompet', dataTrx.idDompet);
+          
+        if (errUpdateDomp) throw errUpdateDomp;
+        
+        // Tulis jurnal menggunakan ID
+        await tulisJurnal(
+          isRefund ? 'Pengeluaran' : 'Pemasukan',
+          isRefund ? 'Retur Penjualan' : 'Penjualan',
+          dataTrx.metodeBayar,
+          `Transaksi ${idTrx} - ${isRefund ? 'Retur' : 'Penjualan'} ${dataTrx.namaPelanggan || 'Umum'}`,
+          nominalTransaksi,
+          // SUMBER: Jika retur sumber uang dari Dompet. Jika jual sumber uang dari Pelanggan.
+          isRefund ? dataTrx.idDompet : idPelangganJurnal, 
+          // TUJUAN: Jika retur uang masuk ke Pelanggan. Jika jual uang masuk ke Dompet.
+          isRefund ? idPelangganJurnal : dataTrx.idDompet, 
+          idTrx
+        );
+        
+        console.log(`Jurnal ditulis: ${isRefund ? 'Pengeluaran' : 'Pemasukan'} Rp${nominalTransaksi}`);
+      }
+    }
+    
+    // 5. Jurnal untuk Piutang
+    if (dataTrx.metodeBayar === 'Piutang') {
+      await tulisJurnal(
+        'Piutang',
+        'Piutang Pelanggan',
+        'Piutang',
+        `Piutang ${idTrx} - ${dataTrx.namaPelanggan || 'Umum'}`,
+        nominalTransaksi,
+        'PIUTANG', // Asumsi ID akun sumber piutang dicatat sebagai 'PIUTANG'
+        idPelangganJurnal, // Tujuan adalah ID Pelanggan
+        idTrx
+      );
     }
 
     return NextResponse.json({ status: 'sukses', id_transaksi: idTrx }, { status: 200 });
   } catch (err: any) {
+    console.error('Error in transaction:', err);
     return NextResponse.json({ status: 'error', pesan: err.message }, { status: 500 });
   }
 }

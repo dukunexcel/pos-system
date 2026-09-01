@@ -30,6 +30,7 @@ interface DompetData {
   id_dompet: string;
   nama_dompet: string;
   saldo?: number;
+  saldo_aktif?: number;
 }
 
 interface ProdukData {
@@ -361,29 +362,50 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     ToastNotif.fire({ icon: 'success', title: 'Sesi Dimulai!' });
   };
 
-  const logoutKasir = () => {
-    Swal.fire({
-        title: 'Akhiri Shift?',
-        text: 'Keranjang akan dibersihkan',
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonColor: '#E53E3E',
-        confirmButtonText: 'Ya, Akhiri',
-        cancelButtonText: 'Batal'
-    }).then((result) => {
+// Fungsi Pengganti Logout Kasir / Akhiri Transaksi
+  const prosesResetSesi = (isDariPembayaran = false) => {
+    if (dataTunda) {
+      // Skenario A: Ada Transaksi Tunda
+      Swal.fire({
+        title: isDariPembayaran ? 'Transaksi Selesai' : 'Ada Transaksi Tunda!',
+        text: 'Masih ada transaksi yang ditunda. Pilih tindakan selanjutnya:',
+        icon: 'info',
+        showDenyButton: true,
+        showCancelButton: !isDariPembayaran, // Sembunyikan tombol batal jika dipanggil dari pembayaran sukses
+        confirmButtonText: 'Panggil Tunda',
+        denyButtonText: 'Transaksi Baru',
+        cancelButtonText: 'Batal',
+        confirmButtonColor: '#3B82F6', // Warna Biru
+        denyButtonColor: '#10B981'     // Warna Hijau
+      }).then((result) => {
         if (result.isConfirmed) {
-        setKeranjangPos([]);
-        setDataTunda(null);
-        setInputKasirWajib('');
-        setInputPelangganWajib('');
-        setCurrentKasir({ id_karyawan: '', nama_karyawan: '' });
-        setCurrentPelanggan({ id_pelanggan: 'UMUM', nama: 'Pelanggan Umum', tipe: 'A' });
-        setTipeHargaAktif('A');
-        setIsModalInisialisasi(true);
-        setTimeout(() => refInputKasir.current?.focus(), 100);
+          panggilDataTunda();
+        } else if (result.isDenied) {
+          resetKeInisialisasiAwal();
         }
-    });
+      });
+    } else {
+      // Skenario B: Tidak ada Transaksi Tunda
+      if (isDariPembayaran) {
+        resetKeInisialisasiAwal();
+      } else {
+        Swal.fire({
+            title: 'Akhiri Shift?',
+            text: 'Keranjang akan dibersihkan',
+            icon: 'warning',
+            showCancelButton: true,
+            confirmButtonColor: '#E53E3E',
+            confirmButtonText: 'Ya, Akhiri',
+            cancelButtonText: 'Batal'
+        }).then((result) => {
+            if (result.isConfirmed) resetKeInisialisasiAwal();
+        });
+      }
+    }
   };
+
+  // Bungkus ulang untuk header & shortcut F10
+  const logoutKasir = () => prosesResetSesi(false);
 
   const bukaScanner = () => {
     setIsModalScanner(true);
@@ -747,19 +769,65 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     setKeranjangPos(newCart);
   };
 
+  // FUNGSI HELPER UNTUK MEMANGGIL TUNDA
+  const panggilDataTunda = () => {
+    if(!dataTunda) return;
+
+    setKeranjangPos(dataTunda.keranjang);
+    
+    // Kembalikan Pelanggan
+    setCurrentPelanggan({ 
+      id_pelanggan: dataTunda.pelangganId, 
+      nama: dataTunda.pelangganNama, 
+      tipe: dataTunda.tipeHarga 
+    });
+    setTipeHargaAktif(dataTunda.tipeHarga);
+    
+    if (dataTunda.pelangganId === 'UMUM') {
+      setInputPelangganWajib('');
+    } else {
+      setInputPelangganWajib(`${dataTunda.pelangganId} - ${dataTunda.pelangganNama}`);
+    }
+
+    // Kembalikan Kasir
+    setCurrentKasir({
+      id_karyawan: dataTunda.kasirId || '',
+      nama_karyawan: dataTunda.kasirNama || 'Belum Dipilih'
+    });
+    
+    if (dataTunda.kasirId) {
+      setInputKasirWajib(`${dataTunda.kasirId} - ${dataTunda.kasirNama}`);
+    }
+
+    setDataTunda(null);
+    ToastNotif.fire({ icon: 'success', title: 'Transaksi Tunda Dipanggil!' });
+  };
+
   // ============ TUNDA TRANSAKSI ============
   const toggleTunda = () => {
     if (keranjangPos.length > 0) {
+      // 1. Simpan state (termasuk Kasir) ke memori tunda
       setDataTunda({
         keranjang: JSON.parse(JSON.stringify(keranjangPos)),
         pelangganId: currentPelanggan.id_pelanggan,
         pelangganNama: currentPelanggan.nama,
-        tipeHarga: tipeHargaAktif
+        tipeHarga: tipeHargaAktif,
+        kasirId: currentKasir.id_karyawan,      // <-- SIMPAN KASIR
+        kasirNama: currentKasir.nama_karyawan   // <-- SIMPAN KASIR
       });
+      
+      // Kosongkan layar
       setKeranjangPos([]);
       setCurrentPelanggan({ id_pelanggan: 'UMUM', nama: 'Pelanggan Umum', tipe: 'A' });
       setTipeHargaAktif('A');
+      
+      // Munculkan popup untuk identifikasi pelanggan baru
+      setInputPelangganWajib('');
+      setIsModalInisialisasi(true);
+      setTimeout(() => refInputPelanggan.current?.focus(), 100);
+      
       ToastNotif.fire({ icon: 'success', title: 'Transaksi Ditunda!' });
+      
     } else if (dataTunda) {
       Swal.fire({
         title: 'Panggil Transaksi?',
@@ -769,21 +837,22 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         confirmButtonText: 'Ya, Panggil',
         cancelButtonText: 'Batal'
       }).then((result) => {
-        if (result.isConfirmed) {
-          setKeranjangPos(dataTunda.keranjang);
-          setCurrentPelanggan({ 
-            id_pelanggan: dataTunda.pelangganId, 
-            nama: dataTunda.pelangganNama, 
-            tipe: dataTunda.tipeHarga 
-          });
-          setTipeHargaAktif(dataTunda.tipeHarga);
-          setDataTunda(null);
-          ToastNotif.fire({ icon: 'success', title: 'Transaksi Dipanggil!' });
-        }
+        if (result.isConfirmed) panggilDataTunda();
       });
     } else {
       ToastNotif.fire({ icon: 'info', title: 'Keranjang Kosong!' });
     }
+  };
+  // Fungsi Inti untuk Membersihkan Sesi ke Awal
+  const resetKeInisialisasiAwal = () => {
+    setKeranjangPos([]);
+    setInputKasirWajib('');
+    setInputPelangganWajib('');
+    setCurrentKasir({ id_karyawan: '', nama_karyawan: '' });
+    setCurrentPelanggan({ id_pelanggan: 'UMUM', nama: 'Pelanggan Umum', tipe: 'A' });
+    setTipeHargaAktif('A');
+    setIsModalInisialisasi(true);
+    setTimeout(() => refInputKasir.current?.focus(), 100);
   };
 
   // ============ PEMBAYARAN & EKSEKUSI ============
@@ -800,8 +869,8 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
 
     let htmlDompet = `<option value="">-- Pilih Dompet --</option>` + 
       dataDompetMaster.map(d => 
-        `<option value="${d.id_dompet}">${d.nama_dompet} (Rp ${Number(d.saldo || 0).toLocaleString('id-ID')})</option>`
-      ).join('');
+        `<option value="${d.id_dompet}">${d.nama_dompet} (Rp ${Number(d.saldo_aktif || 0).toLocaleString('id-ID')})</option>`
+    ).join('');
 
     Swal.fire({
       title: isRefund ? 'Proses Pengembalian Dana' : 'Proses Pembayaran',
@@ -1000,9 +1069,9 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
              );
            }
            setKeranjangPos([]);
-           setDataTunda(null);
+           // setDataTunda(null);
            muatDataInisialisasi();
-           logoutKasir();
+           prosesResetSesi(true);
          });
       } else {
         throw new Error(data.pesan || 'Gagal menyimpan transaksi');
