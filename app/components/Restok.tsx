@@ -17,7 +17,7 @@ export default function Restok({ onClose }: { onClose: () => void }) {
   const [cart, setCart] = useState<any[]>([]);
   const [header, setHeader] = useState({ 
     id_pembelian: '', id_supplier: '', nama_pengirim: '', 
-    status: 'Lunas', dibayar: 0, diskon: 0, biaya_lain: 0, id_dompet: '' 
+    status: 'Lunas', dibayar: 0, diskon: 0, biaya_lain: 0, id_dompet: dataMaster.pengaturan?.default_dompet || '' 
   });
   
   // State Form Input Kiri
@@ -52,14 +52,20 @@ export default function Restok({ onClose }: { onClose: () => void }) {
         safeFetch('/api/dompet'),
         safeFetch('/api/pengaturan')
       ]);
+      const configDb = Array.isArray(resPengaturan?.data) ? resPengaturan?.data[0] : resPengaturan?.data || {};
       
       setDataMaster({ 
         riwayat: resRiwayat?.data || [], 
         produk: resProd?.data || [], 
         supplier: resSupp?.data || [], 
         karyawan: resKary?.data || [], 
-        dompet: resDompet?.data || []
+        dompet: resDompet?.data || [],
+        pengaturan: configDb
       });
+
+      if (configDb.default_dompet) {
+      setHeader(prev => ({ ...prev, id_dompet: configDb.default_dompet }));
+}
 
       if (resPengaturan?.data) {
         setPengaturan(Array.isArray(resPengaturan.data) ? resPengaturan.data[0] : resPengaturan.data);
@@ -656,27 +662,69 @@ export default function Restok({ onClose }: { onClose: () => void }) {
               )}
             </div>
 
-            {(header.status === 'Lunas' || header.dibayar > 0) && (
-              <div>
-                <label className="text-xs font-bold mb-1 block text-header2">Pilih Dompet Pengeluaran</label>
-                <input list="list-dompet" placeholder="Sumber Dana..." 
-                  onChange={e => {
-                    const d = dataMaster.dompet.find((x: any) => 
-                      `${x.id_dompet} - ${x.nama_dompet}` === e.target.value || 
-                      x.nama_dompet === e.target.value ||
-                      x.id_dompet === e.target.value
-                    );
-                    if (d) setHeader({ ...header, id_dompet: d.id_dompet });
-                  }} 
-                  className="w-full p-2 border border-header2 rounded font-bold outline-none" 
-                />
-                <datalist id="list-dompet">
-                  {dataMaster.dompet.map((d: any) => (
-                    <option key={d.id_dompet} value={`${d.id_dompet} - ${d.nama_dompet}`} />
-                  ))}
-                </datalist>
-              </div>
-            )}
+{(header.status === 'Lunas' || header.dibayar > 0) && (
+  <div>
+    <label className="text-xs font-bold mb-1 block text-header2">
+      Pilih Dompet Pengeluaran
+      {dataMaster.dompet.find((d: any) => d.id_dompet === header.id_dompet && d.is_default === 'true') && (
+        <span className="text-[10px] bg-header1 text-white px-2 py-0.5 rounded ml-2">★ UTAMA</span>
+      )}
+    </label>
+    
+    {/* Menghitung nilai display untuk defaultValue */}
+    {(() => {
+      const dompetTerpilih = dataMaster.dompet.find((d: any) => d.id_dompet === header.id_dompet);
+      const defaultValue = dompetTerpilih ? `${dompetTerpilih.id_dompet} - ${dompetTerpilih.nama_dompet}` : '';
+      
+      return (
+        <input 
+          key={header.id_dompet} // Reset input saat id_dompet berubah
+          list="list-dompet" 
+          placeholder="Sumber Dana..." 
+          defaultValue={defaultValue} // Auto-fill, tapi tidak terkontrol
+          onChange={e => {
+            const val = e.target.value;
+            const d = dataMaster.dompet.find((x: any) => 
+              `${x.id_dompet} - ${x.nama_dompet}` === val || 
+              x.nama_dompet === val ||
+              x.id_dompet === val
+            );
+            if (d) {
+              setHeader({ ...header, id_dompet: d.id_dompet });
+            } else {
+              // Jika user mengosongkan input
+              setHeader({ ...header, id_dompet: '' });
+            }
+          }} 
+          className="w-full p-2 border border-header2 rounded font-bold outline-none" 
+        />
+      );
+    })()}
+    
+    <datalist id="list-dompet">
+      {dataMaster.dompet.map((d: any) => (
+        <option key={d.id_dompet} value={`${d.id_dompet} - ${d.nama_dompet}`}>
+          {d.nama_dompet} {d.is_default === 'true' ? '(Utama)' : ''}
+        </option>
+      ))}
+    </datalist>
+    
+    {/* Tampilkan info saldo dompet terpilih */}
+    {header.id_dompet && (
+      <div className="mt-2 text-xs text-gray-500">
+        {(() => {
+          const selected = dataMaster.dompet.find((d: any) => d.id_dompet === header.id_dompet);
+          return selected ? (
+            <span>
+              Saldo: <b className="text-header1">Rp {selected.saldo_aktif?.toLocaleString('id-ID')}</b>
+              {selected.is_default === 'true' && <span className="ml-2 text-header1">★ Dompet Utama</span>}
+            </span>
+          ) : '';
+        })()}
+      </div>
+    )}
+  </div>
+)}
 
             <div className="border-t my-2"></div>
             <div className="grid grid-cols-2 gap-3">

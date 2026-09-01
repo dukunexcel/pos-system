@@ -94,6 +94,7 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
             if (!mergedData[key] && DEFAULT_SANDI[key]) mergedData[key] = DEFAULT_SANDI[key];
           });
           setFormData(mergedData);
+          setPengaturan(data);
         }
 
         const resTema = await fetch('/api/tema');
@@ -227,6 +228,25 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
     setShowDompetModal(true);
   };
 
+  const handleSetDefault = async (id_dompet: string) => {
+    if (setdefault?.default_dompet === id_dompet) return; 
+
+    Swal.fire({ title: 'Mengatur Utama...', didOpen: () => Swal.showLoading() });
+    try {
+      await fetch('/api/pengaturan', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ default_dompet: id_dompet }) 
+      });
+      
+      Swal.close(); 
+      fetchPengaturan(); 
+    } catch (err) {
+      Swal.close();
+      Toast.fire({ icon: 'error', title: 'Gagal mengatur dompet utama' });
+    }
+  };
+
   const fetchDompet = async () => {
     try {
       const res = await fetch('/api/dompet');
@@ -235,11 +255,41 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
     } catch (err) {}
   };
 
+const [setdefault, setPengaturan] = useState<{ default_dompet?: string | null }>({ default_dompet: undefined });
+
+const fetchPengaturan = async () => {
+  try {
+    const res = await fetch('/api/pengaturan');
+    const d = await res.json();
+    if (d.status === 'sukses') setPengaturan(d.data || { default_dompet: undefined });
+  } catch (err) {
+    console.error(err);
+  }
+};
+
   const handleSimpanDompet = async (e: any) => {
     e.preventDefault(); 
     Swal.fire({ title: 'Menyimpan...', didOpen: () => Swal.showLoading() });
-    await fetch('/api/dompet', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(dompetForm) });
-    Swal.close(); Toast.fire({ icon: 'success', title: 'Dompet Tersimpan!' }); 
+    
+    // 1. Simpan data dompet
+    await fetch('/api/dompet', { 
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify(dompetForm) 
+    });
+
+    // 2. Jika dicentang sebagai utama, simpan juga ke pengaturan
+    if (dompetForm.is_default) {
+      await fetch('/api/pengaturan', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ default_dompet: dompetForm.id_dompet }) 
+      });
+      // fetchPengaturan(); // Refresh pengaturan jika diperlukan
+    }
+
+    Swal.close(); 
+    Toast.fire({ icon: 'success', title: 'Dompet Tersimpan!' }); 
     setShowDompetModal(false); 
     fetchDompet();
   };
@@ -854,6 +904,7 @@ return (
               <button onClick={() => openDompetModal()} className="bg-header1 hover:bg-header2 text-white px-4 py-2 rounded-lg font-bold text-xs shadow transition">
                 + Tambah Rekening/Kas
               </button>
+              {/* Hapus indikator dari sini, pindahkan ke dalam card dompet */}
             </div>
 
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -862,23 +913,55 @@ return (
                   <div>
                     <div className="flex justify-between items-start mb-2">
                       <div className="flex gap-1">
+                        {/* Indikator Teks Opsional, hapus jika dirasa terlalu ramai */}
+                        {setdefault?.default_dompet === p.id_dompet && (
+                          <span className="text-[10px] font-black px-2 py-1 rounded bg-yellow-100 text-yellow-700 uppercase tracking-wider">
+                            ⭐ Utama
+                          </span>
+                        )}
                         <span className={`text-[10px] font-black px-2 py-1 rounded uppercase tracking-wider ${p.kategori === 'Tunai' ? 'bg-header2/20 text-header1' : (p.kategori === 'Bank' ? 'bg-blue-100 text-blue-700' : 'bg-purple-100 text-purple-700')}`}>
                           {p.kategori}
                         </span>
                         {p.is_locked === 'true' && <span title="Terkunci untuk perangkat lain" className="text-[10px] bg-red-100 text-red-600 px-1 py-1 rounded">🔒</span>}
                         {p.is_hidden === 'true' && <span title="Tersembunyi" className="text-[10px] bg-gray-200 text-gray-600 px-1 py-1 rounded">👁️‍🗨️</span>}
                       </div>
-                      <span className="text-xs font-mono text-footer2">{p.id_dompet}</span>
+                      
+                      {/* Wrapper ID & Toggle Switch di Kanan Atas */}
+                      <div className="flex items-center gap-2">
+                        <span className="text-xs font-mono text-footer2">{p.id_dompet}</span>
+                        
+                        <label className="relative inline-flex items-center cursor-pointer" title="Jadikan Dompet Utama">
+                          <input 
+                            type="checkbox" 
+                            className="sr-only peer" 
+                            checked={setdefault?.default_dompet === p.id_dompet}
+                            onChange={() => handleSetDefault(p.id_dompet)}
+                          />
+                          <div className="w-8 h-4 bg-footer2/30 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-[#00acc1]"></div>
+                        </label>
+                      </div>
                     </div>
                     <h3 className="font-bold text-lg">{p.nama_dompet}</h3>
                     <p className="text-[11px] font-semibold text-header2/80 mb-4">Pemilik: {p.label}</p>
                   </div>
+                  
                   <div className="border-t border-footer2/10 pt-3 flex justify-between items-end">
                     <div>
                       <div className="text-[10px] font-bold text-footer2">Saldo Terkini</div>
                       <div className="font-black text-header1">Rp {p.saldo_aktif?.toLocaleString('id-ID')}</div>
                     </div>
-                    <button onClick={() => openDompetModal(p)} className="bg-bgutama hover:bg-header2/20 text-header1 px-3 py-1.5 rounded text-xs font-bold transition border border-header2/20">Edit</button>
+                    <div className="flex gap-2">
+                      {/* Tombol untuk menjadikan dompet ini sebagai default */}
+                      {setdefault?.default_dompet !== p.id_dompet && (
+                        <button 
+                          onClick={() => handleSetDefault(p.id_dompet)} 
+                          className="text-[10px] text-footer2 hover:text-header1 font-bold transition px-2 py-1.5"
+                        >
+                          Jadikan Utama
+                        </button>
+                      )}
+                      <button onClick={() => openDompetModal(p)} className="bg-bgutama hover:bg-header2/20 text-header1 px-3 py-1.5 rounded text-xs font-bold transition border border-header2/20">Edit</button>
+                    </div>
                   </div>
                 </div>
               ))}

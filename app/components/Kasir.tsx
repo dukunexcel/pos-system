@@ -867,10 +867,13 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     const isRefund = totalBelanjaPos < 0;
     const absoluteTotal = Math.abs(totalBelanjaPos);
 
+    // Di dalam fungsi bukaModalBayar
     let htmlDompet = `<option value="">-- Pilih Dompet --</option>` + 
-      dataDompetMaster.map(d => 
-        `<option value="${d.id_dompet}">${d.nama_dompet} (Rp ${Number(d.saldo_aktif || 0).toLocaleString('id-ID')})</option>`
-    ).join('');
+      dataDompetMaster.map(d => {
+        // Cek apakah ID dompet ini sama dengan default_dompet di pengaturan
+        const isSelected = d.id_dompet === pengaturan?.default_dompet ? 'selected' : '';
+        return `<option value="${d.id_dompet}" ${isSelected}>${d.nama_dompet} (Rp ${Number(d.saldo_aktif || 0).toLocaleString('id-ID')})</option>`;
+      }).join('');
 
     Swal.fire({
       title: isRefund ? 'Proses Pengembalian Dana' : 'Proses Pembayaran',
