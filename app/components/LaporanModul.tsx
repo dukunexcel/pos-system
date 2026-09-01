@@ -385,7 +385,7 @@ transaksi.forEach((t: any) => {
 
   // 2. Injeksi Panel Tengah (Sandi D - Omset)
   if (pemasukanD > 0) {
-    if (!pemasukanMap.has('D')) pemasukanMap.set('D', { nominal: 0, jumlahTransaksi: 0, keterangan: j.keterangan });
+    if (!pemasukanMap.has('D')) pemasukanMap.set('D', { nominal: 0, jumlahTransaksi: 0, keterangan: 'Penjualan (Omset)' });
     pemasukanMap.get('D').nominal += pemasukanD;
     pemasukanMap.get('D').jumlahTransaksi++;
   }
