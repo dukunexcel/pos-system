@@ -207,7 +207,7 @@ export default function LaporanModul({ onClose }: LaporanProps) {
   };
 
   // Muat Laporan (Fetch ke API)
-    const muatDataLaporan = useCallback(async () => {
+  const muatDataLaporan = useCallback(async () => {
     if (!startDate || !endDate) {
         setError('Silakan pilih tanggal terlebih dahulu');
         return;
@@ -347,85 +347,142 @@ const hitungLaporan = (
   const pemasukanMap = new Map();
   const pengeluaranMap = new Map();
   
-  // Proses transaksi
-  transaksi.forEach((t: any) => {
-    result.kiri.jmlTrx++;
-    result.kiri.totalPemasukan += Number(t.total_belanja || 0);
-    
-    // Hitung HPP dan laba dari detail
-    const details = transaksiDetail.filter(d => d.id_transaksi === t.id_transaksi);
-    let hppTransaksi = 0;
-    let labaTransaksi = 0;
-    
-    details.forEach((d: any) => {
-      hppTransaksi += Number(d.subtotal_modal || 0);
-      labaTransaksi += Number(d.laba_kotor || 0);
-    });
-    
-    result.kiri.totalHpp += hppTransaksi;
-    result.kiri.totalLaba += labaTransaksi;
-    
-    // Pemasukan sandi D
-    if (!pemasukanMap.has('D')) {
-      pemasukanMap.set('D', { nominal: 0, jumlahTransaksi: 0, keterangan: 'Pemasukan Toko' });
-    }
-    pemasukanMap.get('D').nominal += Number(t.total_belanja || 0);
-    pemasukanMap.get('D').jumlahTransaksi++;
-    
-    // Deteksi online/offline
-    const metodeJual = String(t.metode_penjualan || '').toUpperCase();
-    const isOnline = metodeJual.includes('ONLINE') || metodeJual.includes('MARKETPLACE');
-    
-    if (isOnline) {
-      result.kiri.totalTransaksiOnline++;
-      result.kanan.labaOnline += labaTransaksi;
+// Proses transaksi
+transaksi.forEach((t: any) => {
+  const isOnline = String(t.id_transaksi || '').toUpperCase().startsWith('OL-') || 
+                   String(t.metode_penjualan || '').toUpperCase().includes('ONLINE');
+  
+  const details = transaksiDetail.filter(d => d.id_transaksi === t.id_transaksi);
+  
+  let hppTransaksi = 0; // HPP (Sandi F)
+  let labaTransaksi = 0;
+  let pemasukanD = 0; // Pemasukan (Sandi D)
+  let pengeluaranB = 0; // Retur (Sandi B)
+
+  details.forEach((d: any) => {
+    const idDetail = String(d.id_detail || '').toUpperCase();
+    const subJual = Number(d.subtotal_jual || 0);
+    const subModal = Number(d.subtotal_modal || 0); // Ini adalah HPP
+    const laba = Number(d.laba_kotor || 0);
+
+    hppTransaksi += subModal;
+    labaTransaksi += laba;
+
+    // Evaluasi level detail
+    if (idDetail.startsWith('B-')) {
+      pengeluaranB += Math.abs(subJual); // Retur diubah jadi positif
     } else {
-      result.kiri.totalTransaksiOffline++;
-      result.kanan.labaOffline += labaTransaksi;
+      pemasukanD += subJual; // Pemasukan asli
     }
   });
+
+  // 1. Akumulasi Panel Kiri
+  result.kiri.jmlTrx++;
+  result.kiri.totalHpp += hppTransaksi; 
+  result.kiri.totalLaba += labaTransaksi; 
+  result.kiri.totalPemasukan += pemasukanD;
+  result.kiri.totalRetur += pengeluaranB;
+
+  // 2. Injeksi Panel Tengah (Sandi D - Omset)
+  if (pemasukanD > 0) {
+    if (!pemasukanMap.has('D')) pemasukanMap.set('D', { nominal: 0, jumlahTransaksi: 0, keterangan: j.keterangan });
+    pemasukanMap.get('D').nominal += pemasukanD;
+    pemasukanMap.get('D').jumlahTransaksi++;
+  }
+
+  // 3. Injeksi Panel Tengah (Sandi B - Retur)
+  if (pengeluaranB > 0) {
+    if (!pengeluaranMap.has('B')) pengeluaranMap.set('B', { nominal: 0, jumlahTransaksi: 0, keterangan: 'Retur (Pengurangan Kas Ditukar Barang)' });
+    pengeluaranMap.get('B').nominal += pengeluaranB;
+    pengeluaranMap.get('B').jumlahTransaksi++;
+  }
+
+  // 4. Injeksi Panel Tengah (Sandi F - HPP) -> Masuk ke map PEMASUKAN agar bernilai (+)
+  if (hppTransaksi > 0) {
+    if (!pemasukanMap.has('F')) pemasukanMap.set('F', { nominal: 0, jumlahTransaksi: 0, keterangan: 'HPP (Terjual)' });
+    pemasukanMap.get('F').nominal += hppTransaksi;
+    pemasukanMap.get('F').jumlahTransaksi++;
+  }
+
+  // Distribusi Laba Online/Offline
+  if (isOnline) {
+    result.kiri.totalTransaksiOnline++;
+    result.kanan.labaOnline += labaTransaksi;
+  } else {
+    result.kiri.totalTransaksiOffline++;
+    result.kanan.labaOffline += labaTransaksi;
+  }
+});
+
+// ==========================================
+// 1. PROSES PEMBELIAN
+// ==========================================
+pembelian.forEach((p: any) => {
+  const totalTagihan = Number(p.total_tagihan || 0);
+  const totalDibayar = Number(p.dibayar || 0);
+  const sisaHutang = Number(p.sisa_hutang_toko || 0);
+  const diskon = Number(p.diskon || 0);
+  const biayaLain = Number(p.biaya_lain || 0);
   
-  // Proses pembelian
-  pembelian.forEach((p: any) => {
-    const total = Number(p.total_tagihan || 0);
-    result.kiri.totalPembelian += total;
-    result.detailPembelian.totalPembelian += total;
-    result.detailPembelian.totalDibayar += Number(p.dibayar || 0);
-    
-    const sisa = Number(p.sisa_hutang_toko || 0);
-    result.detailPembelian.sisaHutang += sisa;
-    result.kanan.hutangSupplier += sisa;
-    
-    // Pengeluaran sandi E
-    if (!pengeluaranMap.has('E')) {
-      pengeluaranMap.set('E', { nominal: 0, jumlahTransaksi: 0, keterangan: 'Belanja Barang/Restok' });
-    }
-    pengeluaranMap.get('E').nominal += total;
-    pengeluaranMap.get('E').jumlahTransaksi++;
-  });
+  // Total pembelian bersih setelah diskon
+  const totalPembelianBersih = totalTagihan - diskon + biayaLain;
   
-  // Proses jurnal
-  jurnal.forEach((j: any) => {
-    const nominal = Number(j.nominal || 0);
-    const tipe = String(j.tipe || '').toUpperCase();
-    const sandi = j.sandi ? String(j.sandi).charAt(0).toUpperCase() : '';
-    
-    if (tipe === 'PEMASUKAN' || tipe === 'PEMASUKAN_LAIN') {
-      if (!pemasukanMap.has(sandi)) {
-        pemasukanMap.set(sandi, { nominal: 0, jumlahTransaksi: 0, keterangan: j.keterangan || `Sandi ${sandi}` });
-      }
-      pemasukanMap.get(sandi).nominal += nominal;
-      pemasukanMap.get(sandi).jumlahTransaksi++;
-    } else if (tipe === 'PENGELUARAN' || tipe === 'BEBAN') {
-      if (sandi) {
-        if (!pengeluaranMap.has(sandi)) {
-          pengeluaranMap.set(sandi, { nominal: 0, jumlahTransaksi: 0, keterangan: j.keterangan || `Sandi ${sandi}` });
-        }
-        pengeluaranMap.get(sandi).nominal += nominal;
-        pengeluaranMap.get(sandi).jumlahTransaksi++;
-      }
+  result.kiri.totalPembelian += totalTagihan;
+  result.detailPembelian.totalPembelian += totalPembelianBersih;
+  result.detailPembelian.totalDibayar += totalDibayar;
+  
+  const sisaHutangBersih = sisaHutang > 0 ? sisaHutang : Math.max(0, totalPembelianBersih - totalDibayar);
+  result.detailPembelian.sisaHutang += sisaHutangBersih;
+  result.kanan.hutangSupplier += sisaHutangBersih;
+  result.kiri.totalHutangSupplier += sisaHutangBersih;
+  
+  // Pengeluaran Sandi E (Belanja Barang/Restok)
+  if (!pengeluaranMap.has('E')) {
+    pengeluaranMap.set('E', { nominal: 0, jumlahTransaksi: 0, keterangan: 'Belanja Restok (Uang Kas Keluar)' });
+  }
+  pengeluaranMap.get('E').nominal += totalTagihan;
+  pengeluaranMap.get('E').jumlahTransaksi++;
+});
+
+// Pindahkan kalkulasi agregat ke LUAR loop agar performa ringan
+result.detailPembelian.jumlahSupplier = new Set(pembelian.map(p => p.id_supplier)).size;
+result.detailPembelian.jumlahItemDibeli = pembelianDetail.reduce((sum, pd) => sum + Number(pd.qty_masuk || 0), 0);
+
+
+// ==========================================
+// 2. PROSES JURNAL MANUAL
+// ==========================================
+// Daftar sandi otomatis dari modul Kasir & Pembelian (Kaidah No. 2)
+const ignoredSandi = ['A', 'B', 'D', 'E', 'F'];
+
+jurnal.forEach((j: any) => {
+  const nominal = Number(j.nominal || 0);
+  const tipe = String(j.tipe || '').toUpperCase();
+  const sandi = j.sandi ? String(j.sandi).charAt(0).toUpperCase() : '';
+
+  // BLOKIR 1: Abaikan Sandi Otomatis agar tidak dobel hitung
+  if (ignoredSandi.includes(sandi)) return;
+
+  // BLOKIR 2: Abaikan jika tidak ada Sandi (opsional, tergantung rule bisnis)
+  if (!sandi) return; 
+
+  // Pemasukan lainnya (C, G, H, dst)
+  if (tipe === 'PEMASUKAN' || tipe === 'PEMASUKAN_LAIN' || tipe === 'KREDIT') {
+    if (!pemasukanMap.has(sandi)) {
+      pemasukanMap.set(sandi, { nominal: 0, jumlahTransaksi: 0, keterangan: j.keterangan || `Sandi ${sandi}` });
     }
-  });
+    pemasukanMap.get(sandi).nominal += nominal;
+    pemasukanMap.get(sandi).jumlahTransaksi++;
+    
+  // Pengeluaran lainnya (I, J, K, dst)
+  } else if (tipe === 'PENGELUARAN' || tipe === 'BEBAN' || tipe === 'DEBIT') {
+    if (!pengeluaranMap.has(sandi)) {
+      pengeluaranMap.set(sandi, { nominal: 0, jumlahTransaksi: 0, keterangan: j.keterangan || `Sandi ${sandi}` });
+    }
+    pengeluaranMap.get(sandi).nominal += Math.abs(nominal);
+    pengeluaranMap.get(sandi).jumlahTransaksi++;
+  }
+});
   
   // Konversi map ke array
   pemasukanMap.forEach((value, key) => {
@@ -469,6 +526,15 @@ const hitungLaporan = (
   
   // Laba total
   result.kanan.labaTotal = result.kiri.totalLaba - result.tengah.totalPengeluaran;
+
+  // Hitung Arus Kas Murni (Tanpa HPP) untuk Panel Kanan
+  let arusKasMasuk = 0;
+  pemasukanMap.forEach((value, key) => {
+    if (key !== 'F') arusKasMasuk += value.nominal; // Abaikan Sandi F
+  });
+  
+  result.kanan.arusKasMasuk = arusKasMasuk;
+  result.kanan.arusKasKeluar = result.tengah.totalPengeluaran;
   
   return result;
 };
@@ -480,9 +546,11 @@ const hitungLaporan = (
     }
   }, [startDate, endDate, muatDataLaporan]);
 
-  // Format mata uang
+  // Format mata uang yang menangani nilai negatif
   const formatRupiah = (value: number) => {
-    return `Rp ${(value || 0).toLocaleString('id-ID')}`;
+    if (!value) return 'Rp 0';
+    const isNegative = value < 0;
+    return `${isNegative ? '-' : ''}Rp ${Math.abs(value).toLocaleString('id-ID')}`;
   };
 
   // === FUNGSI EKSPOR AUDIT GITHUB ===
@@ -658,26 +726,34 @@ const hitungLaporan = (
               </div>
               
               <div className="border-t border-footer2/20 pt-4 mt-2">
-                <p className="text-xs text-footer2 font-semibold mb-2">Info Transaksi</p>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-footer2">Offline:</span>
-                  <span className="font-bold text-teksgelap">{dataLaporan?.kiri.totalTransaksiOffline || 0}</span>
+                <p className="text-xs text-footer2 font-semibold mb-3 uppercase tracking-wide">Info Transaksi</p>
+                
+                <div className="flex justify-between text-sm mb-2">
+                    <span className="text-footer2">Offline:</span>
+                    <span className="font-bold text-teksgelap">{dataLaporan?.kiri.totalTransaksiOffline || 0} Trx</span>
                 </div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-footer2">Online:</span>
-                  <span className="font-bold text-teksgelap">{dataLaporan?.kiri.totalTransaksiOnline || 0}</span>
+                
+                <div className="flex justify-between text-sm mb-2">
+                    <span className="text-footer2">Online:</span>
+                    <span className="font-bold text-blue-600">{dataLaporan?.kiri.totalTransaksiOnline || 0} Trx</span>
                 </div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-footer2">Pembelian:</span>
-                  <span className="font-bold text-teksgelap">{formatRupiah(dataLaporan?.kiri.totalPembelian || 0)}</span>
+                
+                <div className="flex justify-between text-sm mb-2">
+                    <span className="text-footer2">Belanja (Restok):</span>
+                    <span className="font-bold text-teksgelap">{formatRupiah(dataLaporan?.kiri.totalPembelian || 0)}</span>
                 </div>
-                <div className="flex justify-between text-xs mb-1">
-                  <span className="text-footer2">Retur:</span>
-                  <span className="font-bold text-aksen">{formatRupiah(dataLaporan?.kiri.totalRetur || 0)}</span>
+                
+                {/* Retur sekarang dirender dengan tanda minus eksplisit dan warna merah (aksen) */}
+                <div className="flex justify-between text-sm mb-2 bg-aksen/5 p-1.5 -mx-1.5 rounded">
+                    <span className="text-aksen font-medium">Retur Penjualan:</span>
+                    <span className="font-bold text-aksen">
+                    {dataLaporan?.kiri.totalRetur ? `-${formatRupiah(dataLaporan.kiri.totalRetur)}` : 'Rp 0'}
+                    </span>
                 </div>
-                <div className="flex justify-between text-xs">
-                  <span className="text-footer2">Hutang Supplier:</span>
-                  <span className="font-bold text-red-600">{formatRupiah(dataLaporan?.kiri.totalHutangSupplier || 0)}</span>
+                
+                <div className="flex justify-between text-sm">
+                    <span className="text-footer2">Hutang Supplier:</span>
+                    <span className="font-bold text-red-600">{formatRupiah(dataLaporan?.kiri.totalHutangSupplier || 0)}</span>
                 </div>
               </div>
             </div>
@@ -696,143 +772,112 @@ const hitungLaporan = (
           
           <div className="flex-1 overflow-auto bg-white">
             <table className="w-full text-left whitespace-nowrap text-sm">
-              <thead className="sticky top-0 bg-bglite border-b border-footer2/20 z-10">
-                <tr className="text-[10px] uppercase text-footer2 font-bold">
-                  <th className="p-2 w-12 text-center">Sandi</th>
-                  <th className="p-2">Keterangan</th>
-                  <th className="p-2 text-right">Masuk</th>
-                  <th className="p-2 text-right">Keluar</th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-footer2/10 text-teksgelap font-medium">
-                {loading ? (
-                  <tr><td colSpan={4} className="p-10 text-center text-footer2 italic animate-pulse">Memproses Data...</td></tr>
-                ) : !dataLaporan ? (
-                  <tr><td colSpan={4} className="p-10 text-center text-footer2 italic">Belum ada data. Silakan muat laporan.</td></tr>
-                ) : (
-                  <>
-                    {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(char => {
-                      const labelTeks = getSandiLabel(refSandi, char);
-                      if (!labelTeks || String(labelTeks).trim() === '') return null;
-                      
-                      const dataPemasukan = rawPemasukanArray.find(p => p.sandi === char);
-                      const dataPengeluaran = rawPengeluaranArray.find(p => p.sandi === char);
-                      
-                      const nominalMasuk = dataPemasukan?.jumlah || 0;
-                      const nominalKeluar = dataPengeluaran?.jumlah || 0;
-                      const jumlahTrxMasuk = dataPemasukan?.jumlahTransaksi || 0;
-                      const jumlahTrxKeluar = dataPengeluaran?.jumlahTransaksi || 0;
-                      
-                      const adaData = nominalMasuk > 0 || nominalKeluar > 0;
-                      
-                      return (
-                        <tr 
-                          key={char} 
-                          className={`hover:bg-bgutama/50 ${
-                            !adaData ? 'opacity-40' : ''
-                          } ${
-                            char === 'D' && nominalMasuk > 0 ? 'bg-header2/5' : ''
-                          } ${
-                            char === 'B' && nominalKeluar > 0 ? 'bg-red-50/20' : ''
-                          } ${
-                            char === 'E' && nominalKeluar > 0 ? 'bg-orange-50/20' : ''
-                          }`}
-                        >
-                          <td className="p-2 text-center">
-                            <span className={`inline-block px-2 py-1 rounded text-[10px] font-black ${
-                              nominalMasuk > 0 && nominalKeluar === 0
-                                ? 'bg-header2/20 text-header1'
-                                : nominalKeluar > 0 && nominalMasuk === 0
-                                ? 'bg-aksen/20 text-aksen'
-                                : nominalMasuk > 0 && nominalKeluar > 0
-                                ? 'bg-blue-100 text-blue-600'
-                                : 'bg-bgutama text-footer2/50'
-                            }`}>
-                              {char}
-                            </span>
-                          </td>
-                          <td className="p-2 text-xs font-bold">
-                            <div>{char}. {labelTeks}</div>
-                            {jumlahTrxMasuk > 0 && (
-                              <span className="text-[9px] text-header2 block">({jumlahTrxMasuk}x masuk)</span>
-                            )}
-                            {jumlahTrxKeluar > 0 && (
-                              <span className="text-[9px] text-aksen block">({jumlahTrxKeluar}x keluar)</span>
-                            )}
-                          </td>
-                          <td className={`p-2 text-xs font-mono text-right ${
-                            nominalMasuk > 0 ? 'text-header2 font-bold' : 'text-footer2/40'
-                          }`}>
-                            {nominalMasuk > 0 ? `+${formatRupiah(nominalMasuk)}` : '-'}
-                          </td>
-                          <td className={`p-2 text-xs font-mono text-right ${
-                            nominalKeluar > 0 ? 'text-aksen font-bold' : 'text-footer2/40'
-                          }`}>
-                            {nominalKeluar > 0 ? `-${formatRupiah(nominalKeluar)}` : '-'}
-                          </td>
+                <thead className="sticky top-0 bg-bglite border-b border-footer2/20 z-10">
+                    <tr className="text-xs uppercase text-footer2 font-bold">
+                    <th className="p-3 w-14 text-center">Sandi</th>
+                    <th className="p-3">Keterangan</th>
+                    <th className="p-3 text-right">Nominal (+/-)</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-footer2/10 text-teksgelap font-medium">
+                    {loading ? (
+                    <tr><td colSpan={3} className="p-10 text-center text-footer2 italic animate-pulse">Memproses Data...</td></tr>
+                    ) : !dataLaporan ? (
+                    <tr><td colSpan={3} className="p-10 text-center text-footer2 italic">Belum ada data. Silakan muat laporan.</td></tr>
+                    ) : (
+                    <>
+                        {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(char => {
+                        const labelTeks = getSandiLabel(refSandi, char);
+                        if (!labelTeks || String(labelTeks).trim() === '') return null;
+                        
+                        const dataPemasukan = rawPemasukanArray.find(p => p.sandi === char);
+                        const dataPengeluaran = rawPengeluaranArray.find(p => p.sandi === char);
+                        
+                        const nominalMasuk = dataPemasukan?.jumlah || 0;
+                        const nominalKeluar = dataPengeluaran?.jumlah || 0;
+                        const jumlahTrxMasuk = dataPemasukan?.jumlahTransaksi || 0;
+                        const jumlahTrxKeluar = dataPengeluaran?.jumlahTransaksi || 0;
+                        
+                        const adaData = nominalMasuk > 0 || nominalKeluar > 0;
+                        
+                        return (
+                            <tr 
+                            key={char} 
+                            className={`hover:bg-bgutama/50 ${
+                                !adaData ? 'opacity-40' : ''
+                            } ${
+                                char === 'D' && nominalMasuk > 0 ? 'bg-header2/5' : ''
+                            } ${
+                                char === 'B' && nominalKeluar > 0 ? 'bg-red-50/20' : ''
+                            } ${
+                                char === 'E' && nominalKeluar > 0 ? 'bg-orange-50/20' : ''
+                            }`}
+                            >
+                            <td className="p-3 text-center align-top">
+                                <span className={`inline-block px-2.5 py-1.5 rounded text-xs font-black ${
+                                nominalMasuk > 0 && nominalKeluar === 0 ? 'bg-header2/20 text-header1' : 
+                                nominalKeluar > 0 && nominalMasuk === 0 ? 'bg-aksen/20 text-aksen' : 
+                                nominalMasuk > 0 && nominalKeluar > 0 ? 'bg-blue-100 text-blue-600' : 
+                                'bg-bgutama text-footer2/50'
+                                }`}>
+                                {char}
+                                </span>
+                            </td>
+                            <td className="p-3 text-sm font-bold align-top flex flex-col justify-center min-h-[50px]">
+                                {/* Prioritaskan uraian kustom dari hitungLaporan, jika kosong baru gunakan labelTeks dari database */}
+                                <div className="text-base whitespace-normal break-words">
+                                    {dataPemasukan?.uraian || dataPengeluaran?.uraian || `${char}. ${labelTeks}`}
+                                </div>
+                                <div className="flex gap-2 mt-1">
+                                {jumlahTrxMasuk > 0 && <span className="text-[10px] text-header2 font-medium bg-header2/10 px-1.5 py-0.5 rounded">+{jumlahTrxMasuk}x msk</span>}
+                                {jumlahTrxKeluar > 0 && <span className="text-[10px] text-aksen font-medium bg-aksen/10 px-1.5 py-0.5 rounded">-{jumlahTrxKeluar}x klr</span>}
+                                </div>
+                            </td>
+                            <td className="p-3 align-middle">
+                                <div className="flex flex-col items-end gap-1 font-mono text-sm">
+                                {nominalMasuk > 0 && (
+                                    <span className="text-header2 font-bold tracking-wide">
+                                    +{formatRupiah(nominalMasuk)}
+                                    </span>
+                                )}
+                                {nominalKeluar > 0 && (
+                                    <span className="text-aksen font-bold tracking-wide">
+                                    -{formatRupiah(nominalKeluar)}
+                                    </span>
+                                )}
+                                {!adaData && (
+                                    <span className="text-footer2/40 font-normal">-</span>
+                                )}
+                                </div>
+                            </td>
+                            </tr>
+                        );
+                        })}
+                        
+                        {/* Baris NONE */}
+                        {(rawPengeluaranArray.some(p => p.sandi === 'NONE') || rawPemasukanArray.some(p => p.sandi === 'NONE')) && (
+                        <tr className="hover:bg-bgutama/50 bg-red-50/10">
+                            <td className="p-3 text-center align-top">
+                            <span className="inline-block px-2.5 py-1.5 rounded text-xs font-black bg-footer2/20 text-footer2">NONE</span>
+                            </td>
+                            <td className="p-3 text-sm font-bold text-footer2 align-top">Lainnya (Tanpa Sandi)</td>
+                            <td className="p-3 align-middle">
+                            <div className="flex flex-col items-end gap-1 font-mono text-sm">
+                                {(() => {
+                                const dataNoneMasuk = rawPemasukanArray.find(p => p.sandi === 'NONE');
+                                return dataNoneMasuk && dataNoneMasuk.jumlah > 0 ? <span className="text-header2 font-bold">+{formatRupiah(dataNoneMasuk.jumlah)}</span> : null;
+                                })()}
+                                {(() => {
+                                const dataNoneKeluar = rawPengeluaranArray.find(p => p.sandi === 'NONE');
+                                return dataNoneKeluar && dataNoneKeluar.jumlah > 0 ? <span className="text-aksen font-bold">-{formatRupiah(dataNoneKeluar.jumlah)}</span> : null;
+                                })()}
+                            </div>
+                            </td>
                         </tr>
-                      );
-                    })}
-                    
-                    {/* Baris NONE jika ada */}
-                    {(rawPengeluaranArray.some(p => p.sandi === 'NONE') || 
-                      rawPemasukanArray.some(p => p.sandi === 'NONE')) && (
-                      <tr className="hover:bg-bgutama/50 bg-red-50/10">
-                        <td className="p-2 text-center">
-                          <span className="inline-block px-2 py-1 rounded text-[10px] font-black bg-footer2/20 text-footer2">
-                            NONE
-                          </span>
-                        </td>
-                        <td className="p-2 text-xs font-bold text-footer2">
-                          Lainnya (Tanpa Sandi)
-                        </td>
-                        <td className="p-2 text-xs font-mono text-right text-footer2">
-                          {(() => {
-                            const dataNone = rawPemasukanArray.find(p => p.sandi === 'NONE');
-                            return dataNone && dataNone.jumlah > 0 ? `+${formatRupiah(dataNone.jumlah)}` : '-';
-                          })()}
-                        </td>
-                        <td className="p-2 text-xs font-mono text-right text-footer2">
-                          {(() => {
-                            const dataNone = rawPengeluaranArray.find(p => p.sandi === 'NONE');
-                            return dataNone && dataNone.jumlah > 0 ? `-${formatRupiah(dataNone.jumlah)}` : '-';
-                          })()}
-                        </td>
-                      </tr>
-                    )}
-                    
-                    {/* TOTAL BAR */}
-                    <tr className="bg-header1 text-white border-t-2 border-header1 sticky bottom-0">
-                      <td colSpan={2} className="p-3 text-sm font-black">
-                        TOTAL ARUS KAS
-                      </td>
-                      <td className="p-3 text-sm font-black font-mono text-right">
-                        +{formatRupiah(dataLaporan.tengah?.totalPemasukan || 0)}
-                      </td>
-                      <td className="p-3 text-sm font-black font-mono text-right">
-                        -{formatRupiah(dataLaporan.tengah?.totalPengeluaran || 0)}
-                      </td>
-                    </tr>
-                    
-                    {/* SALDO BERSIH */}
-                    <tr className="bg-bglite border-t border-footer2/20">
-                      <td colSpan={2} className="p-3 text-sm font-black text-header1">
-                        SALDO BERSIH
-                      </td>
-                      <td colSpan={2} className={`p-3 text-sm font-black font-mono text-right ${
-                        (dataLaporan.tengah?.totalPemasukan || 0) - (dataLaporan.tengah?.totalPengeluaran || 0) >= 0
-                          ? 'text-header2'
-                          : 'text-aksen'
-                      }`}>
-                        {formatRupiah(
-                          (dataLaporan.tengah?.totalPemasukan || 0) - 
-                          (dataLaporan.tengah?.totalPengeluaran || 0)
                         )}
-                      </td>
-                    </tr>
-                  </>
-                )}
-              </tbody>
+                    </>
+                    )}
+                </tbody>
             </table>
           </div>
         </div>
@@ -851,9 +896,27 @@ const hitungLaporan = (
                   <tr><td colSpan={2} className="p-10 text-center text-footer2 italic">Belum ada data.</td></tr>
                 ) : (
                   <>
-                    <tr className="hover:bg-bgutama/50 bg-bglite/50 border-t border-footer2/20">
-                      <td className="p-3 text-xs font-black text-header2">Σ Laba Total</td>
-                      <td className="p-3 text-xs font-mono text-right font-bold text-header2">{formatRupiah(dataLaporan.kanan.labaTotal)}</td>
+                    {/* KANVAS HITUNG UTAMA */}
+                    <tr className="bg-bglite/50">
+                        <td className="p-3 text-xs font-black uppercase text-header1">Omset (Nilai Sandi D)</td>
+                        <td className="p-3 text-xs font-mono text-right font-black text-header1">
+                            {formatRupiah(dataLaporan.tengah.pemasukan['D'] || 0)}
+                        </td>
+                    </tr>
+                    <tr className="bg-bglite/50">
+                        <td className="p-3 text-xs font-black uppercase text-aksen">HPP (Nilai Sandi F)</td>
+                        <td className="p-3 text-xs font-mono text-right font-black text-aksen">
+                            -{formatRupiah(dataLaporan.tengah.pemasukan['F'] || 0)}
+                        </td>
+                    </tr>
+                    <tr className="bg-header2/10 border-y border-header2/20">
+                        <td className="p-3">
+                            <div className="text-xs font-black text-header2 uppercase">Σ Laba Total</div>
+                            <div className="text-[10px] text-header2/80 font-medium italic">*Laba = Omset dikurangi HPP</div>
+                        </td>
+                        <td className="p-3 text-sm font-mono text-right font-black text-header2">
+                            {formatRupiah((dataLaporan.tengah.pemasukan['D'] || 0) - (dataLaporan.tengah.pemasukan['F'] || 0))}
+                        </td>
                     </tr>
                     <tr className="hover:bg-bgutama/50">
                       <td className="p-3 text-xs font-medium pl-6 text-footer2">Σ Laba Offline</td>
@@ -863,7 +926,27 @@ const hitungLaporan = (
                       <td className="p-3 text-xs font-medium pl-6 text-footer2">Σ Laba Online</td>
                       <td className="p-3 text-xs font-mono text-right font-bold">{formatRupiah(dataLaporan.kanan.labaOnline)}</td>
                     </tr>
-                    
+                    {/* SPACER */}
+                    <tr><td colSpan={2} className="h-4"></td></tr>
+
+                    {/* TOTAL ARUS KAS MURNI */}
+                    <tr className="bg-bgutama border-y border-footer2/20">
+                        <td className="p-3">
+                            <div className="text-xs font-black uppercase text-teksgelap">Total Arus Kas</div>
+                            <div className="text-[10px] text-footer2 font-medium italic">*Mutasi kas riil (Tanpa HPP)</div>
+                        </td>
+                        <td className="p-3 text-right">
+                            <div className="text-xs font-mono font-black text-green-600">+{formatRupiah(((dataLaporan.kanan as any).arusKasMasuk) || 0)}</div>
+                            <div className="text-xs font-mono font-black text-red-500">-{formatRupiah(((dataLaporan.kanan as any).arusKasKeluar) || 0)}</div>
+                            <div className={`text-sm font-mono font-black mt-1 pt-1 border-t border-footer2/20 ${
+                            (((dataLaporan.kanan as any).arusKasMasuk || 0) - ((dataLaporan.kanan as any).arusKasKeluar || 0)) >= 0 ? 'text-header1' : 'text-aksen'
+                            }`}>
+                            {formatRupiah(((dataLaporan.kanan as any).arusKasMasuk || 0) - ((dataLaporan.kanan as any).arusKasKeluar || 0))}
+                            </div>
+                        </td>
+                    </tr>
+                    {/* SPACER */}
+                    <tr><td colSpan={2} className="h-4"></td></tr>
                     <tr className="hover:bg-bgutama/50 bg-bglite/50 border-t border-footer2/20">
                       <td className="p-3 text-xs font-black">Σ Omzet BPOM</td>
                       <td className="p-3 text-xs font-mono text-right font-bold">{formatRupiah(dataLaporan.kanan.bpom.omzet)}</td>

@@ -17,7 +17,7 @@ export async function POST(request: Request) {
     // 1. Buat SATU ID Transaksi Utama
     const tanggalStr = new Date().toISOString().slice(2, 10).replace(/-/g, '');
     const unixTime = Date.now();
-    const idTransaksiUtama = `MKT-${tanggalStr}-${unixTime}`;
+    const idTransaksiUtama = `OL-${tanggalStr}-${unixTime}`;
 
     let totalBelanjaGrand = 0;
     const transaksiDetails: any[] = [];
