@@ -308,23 +308,37 @@ export default function Produk({ onClose }: { onClose: () => void }) {
 
   const handleSimpan = async (e: React.FormEvent) => {
     e.preventDefault();
-    Swal.fire({ title: 'Menyimpan...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+    
+    Swal.fire({ 
+      title: 'Menyimpan...', 
+      didOpen: () => Swal.showLoading(), 
+      allowOutsideClick: false 
+    });
+    
     try {
       const res = await fetch('/api/produk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(form)
       });
+      
       const data = await res.json();
+      
+      // DEBUG: Lihat response dari API
+      console.log('API Response:', data);
+      
       Swal.close();
-      if (data.status === 'sukses') {
+      
+      // PERBAIKAN: Gunakan res.ok sebagai penanda sukses
+      if (res.ok || data.status === 'sukses') {
         Toast.fire({ icon: 'success', title: 'Produk Tersimpan!' });
         setShowModal(false);
         fetchData();
       } else {
-        Swal.fire('Gagal', data.pesan, 'error');
+        Swal.fire('Gagal', data.pesan || data.message || 'Terjadi kesalahan', 'error');
       }
     } catch (err) {
+      console.error('Error:', err);
       Swal.fire('Error', 'Koneksi terputus', 'error');
     }
   };
