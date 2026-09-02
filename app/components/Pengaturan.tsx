@@ -7,430 +7,462 @@ import ExcelJS from 'exceljs';
 const { saveAs } = require('file-saver');
 
 const Toast = Swal.mixin({
-  toast: true,
-  position: 'top-end',
-  showConfirmButton: false,
-  timer: 3000,
-  timerProgressBar: true,
+  toast: true,
+  position: 'top-end',
+  showConfirmButton: false,
+  timer: 3000,
+  timerProgressBar: true,
 });
 
 // Data Sandi Default
 const DEFAULT_SANDI: Record<string, string> = {
-  Sandi_A: 'Mutasi', Sandi_B: 'Retur', Sandi_C: '', Sandi_D: 'Pemasukan Toko',
-  Sandi_E: 'Belanja Barang', Sandi_F: 'HPP', Sandi_G: 'Hasil Ndalem',
-  Sandi_H: 'Biaya Kost', Sandi_I: 'Syahriyyah', Sandi_J: 'Thoharoh',
-  Sandi_K: 'Transport dan Paket', Sandi_L: 'Biaya Listrik', Sandi_M: 'Biaya Kuota, pulsa & wifi',
-  Sandi_N: 'Iuran Musyawaroh', Sandi_O: 'Biaya Perawatan Mobil', Sandi_P: "Biaya Ro'an",
-  Sandi_Q: 'Keperluan Ndalem', Sandi_R: 'Shodaqoh Harian', Sandi_S: 'Transaksi Bank',
-  Sandi_T: 'Biaya Air Minum', Sandi_U: '', Sandi_V: 'Operasional lain-lain',
-  Sandi_W: 'Hutang - Piutang', Sandi_X: 'Pemasukan Lain (non-penjualan)',
-  Sandi_Y: '', Sandi_Z: 'Pemberian Laba Bersih'
+  Sandi_A: 'Mutasi', Sandi_B: 'Retur', Sandi_C: '', Sandi_D: 'Pemasukan Toko',
+  Sandi_E: 'Belanja Barang', Sandi_F: 'HPP', Sandi_G: 'Hasil Ndalem',
+  Sandi_H: 'Biaya Kost', Sandi_I: 'Syahriyyah', Sandi_J: 'Thoharoh',
+  Sandi_K: 'Transport dan Paket', Sandi_L: 'Biaya Listrik', Sandi_M: 'Biaya Kuota, pulsa & wifi',
+  Sandi_N: 'Iuran Musyawaroh', Sandi_O: 'Biaya Perawatan Mobil', Sandi_P: "Biaya Ro'an",
+  Sandi_Q: 'Keperluan Ndalem', Sandi_R: 'Shodaqoh Harian', Sandi_S: 'Transaksi Bank',
+  Sandi_T: 'Biaya Air Minum', Sandi_U: '', Sandi_V: 'Operasional lain-lain',
+  Sandi_W: 'Hutang - Piutang', Sandi_X: 'Pemasukan Lain (non-penjualan)',
+  Sandi_Y: '', Sandi_Z: 'Pemberian Laba Bersih'
 };
 
 const ClearableInput = ({ name, value, onChange, placeholder, disabled, extraClass = "" }: {
-  name: string;
-  value?: string;
-  onChange: (e: any) => void;
-  placeholder?: string;
-  disabled?: boolean;
-  extraClass?: string;
+  name: string;
+  value?: string;
+  onChange: (e: any) => void;
+  placeholder?: string;
+  disabled?: boolean;
+  extraClass?: string;
 }) => (
-  <div className={`relative ${extraClass}`}>
-    <input
-      type="text"
-      name={name}
-      value={value || ''}
-      onChange={onChange}
-      disabled={disabled}
-      placeholder={placeholder}
-      className={`w-full p-2 pr-8 border border-footer2/30 rounded text-xs font-mono focus:outline-none focus:border-header1 ${disabled ? 'bg-bgutama/50 text-gray-400' : 'bg-white'}`}
-    />
-    {value && !disabled && (
-      <button
-        type="button"
-        onClick={() => onChange({ target: { name, value: '' } })}
-        className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full bg-footer2/20 text-footer2 hover:bg-red-500 hover:text-white transition-colors text-[10px] font-bold"
-        title="Bersihkan"
-      >
-        ✕
-      </button>
-    )}
-  </div>
+  <div className={`relative ${extraClass}`}>
+    <input
+      type="text"
+      name={name}
+      value={value || ''}
+      onChange={onChange}
+      disabled={disabled}
+      placeholder={placeholder}
+      className={`w-full p-2 pr-8 border border-footer2/30 rounded text-xs font-mono focus:outline-none focus:border-header1 ${disabled ? 'bg-bgutama/50 text-gray-400' : 'bg-white'}`}
+    />
+    {value && !disabled && (
+      <button
+        type="button"
+        onClick={() => onChange({ target: { name, value: '' } })}
+        className="absolute right-2 top-1/2 -translate-y-1/2 w-4 h-4 flex items-center justify-center rounded-full bg-footer2/20 text-footer2 hover:bg-red-500 hover:text-white transition-colors text-[10px] font-bold"
+        title="Bersihkan"
+      >
+        ✕
+      </button>
+    )}
+  </div>
 );
 
 export default function Pengaturan({ onClose }: { onClose: () => void }) {
-  const [activeTab, setActiveTab] = useState('toko'); 
-  const [loading, setLoading] = useState(true);
-  const [formData, setFormData] = useState<Record<string, string>>({});
-  const [temaLibrary, setTemaLibrary] = useState<any[]>([]);
-  const [tipeMember, setTipeMember] = useState<string[]>([]);
-  const [isProcessing, setIsProcessing] = useState(false);
+  const [activeTab, setActiveTab] = useState('toko'); 
+  const [loading, setLoading] = useState(true);
+  const [formData, setFormData] = useState<Record<string, string>>({});
+  const [temaLibrary, setTemaLibrary] = useState<any[]>([]);
+  const [tipeMember, setTipeMember] = useState<string[]>([]);
+  const [isProcessing, setIsProcessing] = useState(false);
 
-  // State Khusus Modul Auth
-  const [authList, setAuthList] = useState<any[]>([]);
-  const [showAuthModal, setShowAuthModal] = useState(false);
-  const [authForm, setAuthForm] = useState<any>({});
-  const [isAuthEdit, setIsAuthEdit] = useState(false);
+  // State Khusus Modul Auth
+  const [authList, setAuthList] = useState<any[]>([]);
+  const [showAuthModal, setShowAuthModal] = useState(false);
+  const [authForm, setAuthForm] = useState<any>({});
+  const [isAuthEdit, setIsAuthEdit] = useState(false);
 
-  // State Khusus Modul Dompet
-  const [dompetList, setDompetList] = useState<any[]>([]);
-  const [showDompetModal, setShowDompetModal] = useState(false);
-  const [dompetForm, setDompetForm] = useState<any>({});
-  const [isDompetEdit, setIsDompetEdit] = useState(false);
+  // State Khusus Modul Dompet
+  const [dompetList, setDompetList] = useState<any[]>([]);
+  const [showDompetModal, setShowDompetModal] = useState(false);
+  const [dompetForm, setDompetForm] = useState<any>({});
+  const [isDompetEdit, setIsDompetEdit] = useState(false);
 
-  const listHarga = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
-  const listSandi = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
+  const listHarga = ['A', 'B', 'C', 'D', 'E', 'F', 'G', 'H', 'I'];
+  const listSandi = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'.split('');
 
+  useEffect(() => {
+    const fetchInitialData = async () => {
+      try {
+        const resPengaturan = await fetch('/api/pengaturan');
+        const dataPengaturan = await resPengaturan.json();
+        if (dataPengaturan.status === 'sukses') {
+          const data = dataPengaturan.data || {};
+          const mergedData = { ...data };
+          listSandi.forEach(char => {
+            const key = `Sandi_${char}`;
+            if (!mergedData[key] && DEFAULT_SANDI[key]) mergedData[key] = DEFAULT_SANDI[key];
+          });
+          setFormData(mergedData);
+          setPengaturan(data);
+        }
+
+        const resTema = await fetch('/api/tema');
+        const dataTema = await resTema.json();
+        if (dataTema.status === 'sukses') setTemaLibrary(dataTema.data || []);
+
+        const resDompet = await fetch('/api/dompet');
+        const dataDompet = await resDompet.json();
+        if (dataDompet.status === 'sukses') setDompetList(dataDompet.data || []);
+
+        // Fetch Auth (Asumsi endpoint API /api/auth)
+        const resAuth = await fetch('/api/auth');
+        const dataAuth = await resAuth.json();
+        if (dataAuth.status === 'sukses') setAuthList(dataAuth.data || []);
+
+        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
+        const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
+        if (supabaseUrl && supabaseKey) {
+          const resPlg = await fetch(`${supabaseUrl}/rest/v1/pelanggan?select=tipe`, {
+            headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
+          });
+          const dataPlg = await resPlg.json();
+          if (Array.isArray(dataPlg)) {
+            const uniqueTypes = Array.from(new Set(dataPlg.map((p: any) => p.tipe).filter(Boolean)));
+            setTipeMember(uniqueTypes as string[]);
+          }
+        }
+      } catch (err) {
+        Toast.fire({ icon: 'error', title: 'Gagal memuat data' });
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchInitialData();
+  }, []);
+
+  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.value });
+  };
+
+  const handleCheck = (e: React.ChangeEvent<HTMLInputElement>) => {
+    setFormData({ ...formData, [e.target.name]: e.target.checked ? 'true' : 'false' });
+  };
+
+  const handleAutoHeaderStruk = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const checked = e.target.checked;
+    setFormData(prev => ({
+      ...prev, Struk_Otomatis: checked ? 'true' : 'false',
+      ...(checked && { Struk_H1: prev.Toko_Nama || '', Struk_H2: prev.Toko_Alamat || '', Struk_H3: prev.Toko_Kontak || '' })
+    }));
+  };
+
+  const handlePilihTema = (e: React.ChangeEvent<HTMLSelectElement>) => {
+    const val = e.target.value;
+    if (!val) return;
+    try {
+      const t = JSON.parse(val);
+      setFormData(prev => ({
+        ...prev, Warna_Header1: t.h1, Warna_Header2: t.h2, Warna_Footer1: t.f1, Warna_Footer2: t.f2,
+        Warna_BgUtama: t.bg1, Warna_BgLite: t.bg2, Warna_TeksGelap: t.txt, Warna_Aksen: t.ax
+      }));
+    } catch (e) {}
+  };
+
+  const handleSimpan = async () => {
+    Swal.fire({ title: 'Menyimpan...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+    try {
+      const res = await fetch('/api/pengaturan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
+      const data = await res.json();
+      if (data.status === 'sukses') {
+        Swal.close();
+        Toast.fire({ icon: 'success', title: 'Perubahan tersimpan!' });
+        setTimeout(() => window.location.reload(), 1000); 
+      } else Swal.fire('Gagal', data.pesan, 'error');
+    } catch (err) { Swal.fire('Error', 'Koneksi terputus', 'error'); }
+  };
+
+  // === FITUR AUTH ===
+  const fetchAuth = async () => {
+    try {
+      const res = await fetch('/api/auth');
+      const d = await res.json();
+      if (d.status === 'sukses') setAuthList(d.data);
+    } catch (err) {}
+  };
+
+  const handleInputAuth = (e: any) => {
+    setAuthForm({ ...authForm, [e.target.name]: e.target.value });
+  };
+  
+  const handleCheckAuth = (e: any) => setAuthForm({ ...authForm, [e.target.name]: e.target.checked ? 'true' : 'false' });
+
+  const openAuthModal = (item?: any) => {
+    if (item) { setAuthForm(item); setIsAuthEdit(true); }
+    else { setAuthForm({ Email: '', Sandi: '', Role: 'Kasir', Status_Aktif: 'true' }); setIsAuthEdit(false); }
+    setShowAuthModal(true);
+  };
+
+  const handleSimpanAuth = async (e: any) => {
+    e.preventDefault(); 
+    Swal.fire({ title: 'Menyimpan...', didOpen: () => Swal.showLoading() });
+    await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(authForm) });
+    Swal.close(); Toast.fire({ icon: 'success', title: 'Pengguna Tersimpan!' }); 
+    setShowAuthModal(false); 
+    fetchAuth();
+  };
+
+  //  === STATE KHUSUS SAFEMODE ===
+  const [safeRules, setSafeRules] = useState<{ id: string; istilah: string; status: boolean }[]>([]);
+
+  // Sinkronisasi string JSON dari DB ke state Array saat data load
   useEffect(() => {
-    const fetchInitialData = async () => {
+    if (formData.Safemode_Rules) {
       try {
-        const resPengaturan = await fetch('/api/pengaturan');
-        const dataPengaturan = await resPengaturan.json();
-        if (dataPengaturan.status === 'sukses') {
-          const data = dataPengaturan.data || {};
-          const mergedData = { ...data };
-          listSandi.forEach(char => {
-            const key = `Sandi_${char}`;
-            if (!mergedData[key] && DEFAULT_SANDI[key]) mergedData[key] = DEFAULT_SANDI[key];
-          });
-          setFormData(mergedData);
-          setPengaturan(data);
-        }
-
-        const resTema = await fetch('/api/tema');
-        const dataTema = await resTema.json();
-        if (dataTema.status === 'sukses') setTemaLibrary(dataTema.data || []);
-
-        const resDompet = await fetch('/api/dompet');
-        const dataDompet = await resDompet.json();
-        if (dataDompet.status === 'sukses') setDompetList(dataDompet.data || []);
-
-        // Fetch Auth (Asumsi endpoint API /api/auth)
-        const resAuth = await fetch('/api/auth');
-        const dataAuth = await resAuth.json();
-        if (dataAuth.status === 'sukses') setAuthList(dataAuth.data || []);
-
-        const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL || '';
-        const supabaseKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY || '';
-        if (supabaseUrl && supabaseKey) {
-          const resPlg = await fetch(`${supabaseUrl}/rest/v1/pelanggan?select=tipe`, {
-            headers: { 'apikey': supabaseKey, 'Authorization': `Bearer ${supabaseKey}` }
-          });
-          const dataPlg = await resPlg.json();
-          if (Array.isArray(dataPlg)) {
-            const uniqueTypes = Array.from(new Set(dataPlg.map((p: any) => p.tipe).filter(Boolean)));
-            setTipeMember(uniqueTypes as string[]);
-          }
-        }
-      } catch (err) {
-        Toast.fire({ icon: 'error', title: 'Gagal memuat data' });
-      } finally {
-        setLoading(false);
-      }
-    };
-    fetchInitialData();
-  }, []);
-
-  const handleChange = (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement | HTMLSelectElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.value });
-  };
-
-  const handleCheck = (e: React.ChangeEvent<HTMLInputElement>) => {
-    setFormData({ ...formData, [e.target.name]: e.target.checked ? 'true' : 'false' });
-  };
-
-  const handleAutoHeaderStruk = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const checked = e.target.checked;
-    setFormData(prev => ({
-      ...prev, Struk_Otomatis: checked ? 'true' : 'false',
-      ...(checked && { Struk_H1: prev.Toko_Nama || '', Struk_H2: prev.Toko_Alamat || '', Struk_H3: prev.Toko_Kontak || '' })
-    }));
-  };
-
-  const handlePilihTema = (e: React.ChangeEvent<HTMLSelectElement>) => {
-    const val = e.target.value;
-    if (!val) return;
-    try {
-      const t = JSON.parse(val);
-      setFormData(prev => ({
-        ...prev, Warna_Header1: t.h1, Warna_Header2: t.h2, Warna_Footer1: t.f1, Warna_Footer2: t.f2,
-        Warna_BgUtama: t.bg1, Warna_BgLite: t.bg2, Warna_TeksGelap: t.txt, Warna_Aksen: t.ax
-      }));
-    } catch (e) {}
-  };
-
-  const handleSimpan = async () => {
-    Swal.fire({ title: 'Menyimpan...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
-    try {
-      const res = await fetch('/api/pengaturan', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(formData) });
-      const data = await res.json();
-      if (data.status === 'sukses') {
-        Swal.close();
-        Toast.fire({ icon: 'success', title: 'Perubahan tersimpan!' });
-        setTimeout(() => window.location.reload(), 1000); 
-      } else Swal.fire('Gagal', data.pesan, 'error');
-    } catch (err) { Swal.fire('Error', 'Koneksi terputus', 'error'); }
-  };
-
-  // === FITUR AUTH ===
-  const fetchAuth = async () => {
-    try {
-      const res = await fetch('/api/auth');
-      const d = await res.json();
-      if (d.status === 'sukses') setAuthList(d.data);
-    } catch (err) {}
-  };
-
-  const handleInputAuth = (e: any) => {
-    setAuthForm({ ...authForm, [e.target.name]: e.target.value });
-  };
-  
-  const handleCheckAuth = (e: any) => setAuthForm({ ...authForm, [e.target.name]: e.target.checked ? 'true' : 'false' });
-
-  const openAuthModal = (item?: any) => {
-    if (item) { setAuthForm(item); setIsAuthEdit(true); }
-    else { setAuthForm({ Email: '', Sandi: '', Role: 'Kasir', Status_Aktif: 'true' }); setIsAuthEdit(false); }
-    setShowAuthModal(true);
-  };
-
-  const handleSimpanAuth = async (e: any) => {
-    e.preventDefault(); 
-    Swal.fire({ title: 'Menyimpan...', didOpen: () => Swal.showLoading() });
-    await fetch('/api/auth', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(authForm) });
-    Swal.close(); Toast.fire({ icon: 'success', title: 'Pengguna Tersimpan!' }); 
-    setShowAuthModal(false); 
-    fetchAuth();
-  };
-
-  // === FITUR DOMPET ===
-  const handleInputDompet = (e: any) => {
-    const val = e.target.type === 'number' ? Number(e.target.value) : e.target.value;
-    setDompetForm({ ...dompetForm, [e.target.name]: val });
-  };
-  
-  const handleCheckDompet = (e: any) => setDompetForm({ ...dompetForm, [e.target.name]: e.target.checked ? 'true' : 'false' });
-
-  const openDompetModal = (item?: any) => {
-    if (item) { 
-      setDompetForm(item); setIsDompetEdit(true); 
-    } else { 
-      setDompetForm({ 
-        id_dompet: `KAS-${Date.now().toString().slice(-4)}`, 
-        kategori: 'Tunai', 
-        saldo_aktif: 0, 
-        status_aktif: 'true',
-        label: 'Umum', // Default Umum
-        is_locked: 'false',
-        is_hidden: 'false'
-      }); 
-      setIsDompetEdit(false); 
+        setSafeRules(JSON.parse(formData.Safemode_Rules));
+      } catch (e) {}
+    } else {
+      // Default awal jika belum ada data
+      setSafeRules([
+        { id: '0', istilah: 'BPOM', status: true },
+        { id: '1', istilah: 'Non BPOM', status: true }
+      ]);
     }
-    setShowDompetModal(true);
+  }, [formData.Safemode_Rules]);
+
+  // Handler update Kartu Keamanan
+  const handleUpdateSafeRule = (index: number, key: string, value: any) => {
+    const newRules = [...safeRules];
+    newRules[index] = { ...newRules[index], [key]: value };
+    setSafeRules(newRules);
+    setFormData(prev => ({ ...prev, Safemode_Rules: JSON.stringify(newRules) }));
   };
 
-  const handleSetDefault = async (id_dompet: string) => {
-    if (setdefault?.default_dompet === id_dompet) return; 
-
-    Swal.fire({ title: 'Mengatur Utama...', didOpen: () => Swal.showLoading() });
-    try {
-      await fetch('/api/pengaturan', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ default_dompet: id_dompet }) 
-      });
-      
-      Swal.close(); 
-      fetchPengaturan(); 
-    } catch (err) {
-      Swal.close();
-      Toast.fire({ icon: 'error', title: 'Gagal mengatur dompet utama' });
-    }
+  const handleAddSafeRule = () => {
+    const newRules = [...safeRules, { id: String(safeRules.length), istilah: '', status: true }];
+    setSafeRules(newRules);
+    setFormData(prev => ({ ...prev, Safemode_Rules: JSON.stringify(newRules) }));
   };
 
-  const fetchDompet = async () => {
-    try {
-      const res = await fetch('/api/dompet');
-      const d = await res.json();
-      if (d.status === 'sukses') setDompetList(d.data);
-    } catch (err) {}
+  // === FITUR DOMPET ===
+  const handleInputDompet = (e: any) => {
+    const val = e.target.type === 'number' ? Number(e.target.value) : e.target.value;
+    setDompetForm({ ...dompetForm, [e.target.name]: val });
+  };
+  
+  const handleCheckDompet = (e: any) => setDompetForm({ ...dompetForm, [e.target.name]: e.target.checked ? 'true' : 'false' });
+
+  const openDompetModal = (item?: any) => {
+    if (item) { 
+      setDompetForm(item); setIsDompetEdit(true); 
+    } else { 
+      setDompetForm({ 
+        id_dompet: `KAS-${Date.now().toString().slice(-4)}`, 
+        kategori: 'Tunai', 
+        saldo_aktif: 0, 
+        status_aktif: 'true',
+        label: 'Umum', // Default Umum
+        is_locked: 'false',
+        is_hidden: 'false'
+      }); 
+      setIsDompetEdit(false); 
+    }
+    setShowDompetModal(true);
+  };
+
+  const handleSetDefault = async (id_dompet: string) => {
+    if (setdefault?.default_dompet === id_dompet) return; 
+
+    Swal.fire({ title: 'Mengatur Utama...', didOpen: () => Swal.showLoading() });
+    try {
+      await fetch('/api/pengaturan', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ default_dompet: id_dompet }) 
+      });
+      
+      Swal.close(); 
+      fetchPengaturan(); 
+    } catch (err) {
+      Swal.close();
+      Toast.fire({ icon: 'error', title: 'Gagal mengatur dompet utama' });
+    }
+  };
+
+  const fetchDompet = async () => {
+    try {
+      const res = await fetch('/api/dompet');
+      const d = await res.json();
+      if (d.status === 'sukses') setDompetList(d.data);
+    } catch (err) {}
+  };
+
+  const [setdefault, setPengaturan] = useState<{ default_dompet?: string | null }>({ default_dompet: undefined });
+
+  const fetchPengaturan = async () => {
+    try {
+      const res = await fetch('/api/pengaturan');
+      const d = await res.json();
+      if (d.status === 'sukses') setPengaturan(d.data || { default_dompet: undefined });
+    } catch (err) {
+      console.error(err);
+    }
   };
 
-const [setdefault, setPengaturan] = useState<{ default_dompet?: string | null }>({ default_dompet: undefined });
+  const handleSimpanDompet = async (e: any) => {
+    e.preventDefault(); 
+    Swal.fire({ title: 'Menyimpan...', didOpen: () => Swal.showLoading() });
+    
+    // 1. Simpan data dompet
+    await fetch('/api/dompet', { 
+      method: 'POST', 
+      headers: { 'Content-Type': 'application/json' }, 
+      body: JSON.stringify(dompetForm) 
+    });
 
-const fetchPengaturan = async () => {
-  try {
-    const res = await fetch('/api/pengaturan');
-    const d = await res.json();
-    if (d.status === 'sukses') setPengaturan(d.data || { default_dompet: undefined });
-  } catch (err) {
-    console.error(err);
-  }
-};
+    // 2. Jika dicentang sebagai utama, simpan juga ke pengaturan
+    if (dompetForm.is_default) {
+      await fetch('/api/pengaturan', { 
+        method: 'POST', 
+        headers: { 'Content-Type': 'application/json' }, 
+        body: JSON.stringify({ default_dompet: dompetForm.id_dompet }) 
+      });
+      // fetchPengaturan(); // Refresh pengaturan jika diperlukan
+    }
 
-  const handleSimpanDompet = async (e: any) => {
-    e.preventDefault(); 
-    Swal.fire({ title: 'Menyimpan...', didOpen: () => Swal.showLoading() });
-    
-    // 1. Simpan data dompet
-    await fetch('/api/dompet', { 
-      method: 'POST', 
-      headers: { 'Content-Type': 'application/json' }, 
-      body: JSON.stringify(dompetForm) 
-    });
+    Swal.close(); 
+    Toast.fire({ icon: 'success', title: 'Dompet Tersimpan!' }); 
+    setShowDompetModal(false); 
+    fetchDompet();
+  };
 
-    // 2. Jika dicentang sebagai utama, simpan juga ke pengaturan
-    if (dompetForm.is_default) {
-      await fetch('/api/pengaturan', { 
-        method: 'POST', 
-        headers: { 'Content-Type': 'application/json' }, 
-        body: JSON.stringify({ default_dompet: dompetForm.id_dompet }) 
-      });
-      // fetchPengaturan(); // Refresh pengaturan jika diperlukan
-    }
+  // === FITUR BACKUP DATABASE ===
+  const handleBackupDatabase = async () => {
+    setIsProcessing(true);
+    Swal.fire({ title: 'Menyiapkan Backup...', text: 'Mengambil data dari server', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+    
+    try {
+      const res = await fetch('/api/database/backup');
+      const data = await res.json();
+      
+      if (data.status !== 'sukses') throw new Error(data.pesan);
+      
+      const workbook = new ExcelJS.Workbook();
+      
+      // Loop seluruh tabel yang dikirim dari Backend untuk dijadikan Sheet
+      Object.keys(data.tables).forEach((tableName) => {
+        const sheetData = data.tables[tableName];
+        if (sheetData && sheetData.length > 0) {
+          const worksheet = workbook.addWorksheet(tableName.toUpperCase());
+          // Ambil header dari keys baris pertama
+          const headers = Object.keys(sheetData[0]);
+          worksheet.addRow(headers);
+          worksheet.getRow(1).font = { bold: true };
+          worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00ACC1' } };
+          
+          sheetData.forEach((row: any) => {
+            const rowValues = headers.map(header => row[header]);
+            worksheet.addRow(rowValues);
+          });
+        }
+      });
 
-    Swal.close(); 
-    Toast.fire({ icon: 'success', title: 'Dompet Tersimpan!' }); 
-    setShowDompetModal(false); 
-    fetchDompet();
-  };
+      const buffer = await workbook.xlsx.writeBuffer();
+      const tanggalStr = new Date().toISOString().slice(0, 10);
+      saveAs(new Blob([buffer]), `Backup_POS_${tanggalStr}.xlsx`);
+      
+      Swal.fire('Berhasil', 'Backup database berhasil diunduh.', 'success');
+    } catch (err: any) {
+      Swal.fire('Gagal Backup', err.message || 'Koneksi terputus', 'error');
+    } finally {
+      setIsProcessing(false);
+    }
+  };
 
-  // === FITUR BACKUP DATABASE ===
-  const handleBackupDatabase = async () => {
-    setIsProcessing(true);
-    Swal.fire({ title: 'Menyiapkan Backup...', text: 'Mengambil data dari server', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
-    
-    try {
-      const res = await fetch('/api/database/backup');
-      const data = await res.json();
-      
-      if (data.status !== 'sukses') throw new Error(data.pesan);
-      
-      const workbook = new ExcelJS.Workbook();
-      
-      // Loop seluruh tabel yang dikirim dari Backend untuk dijadikan Sheet
-      Object.keys(data.tables).forEach((tableName) => {
-        const sheetData = data.tables[tableName];
-        if (sheetData && sheetData.length > 0) {
-          const worksheet = workbook.addWorksheet(tableName.toUpperCase());
-          // Ambil header dari keys baris pertama
-          const headers = Object.keys(sheetData[0]);
-          worksheet.addRow(headers);
-          worksheet.getRow(1).font = { bold: true };
-          worksheet.getRow(1).fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00ACC1' } };
-          
-          sheetData.forEach((row: any) => {
-            const rowValues = headers.map(header => row[header]);
-            worksheet.addRow(rowValues);
-          });
-        }
-      });
+  // === FITUR RESET SYSTEM ===
+  const handleResetSystem = async () => {
+    const { value: modeReset } = await Swal.fire({
+      title: 'Pilih Mode Reset',
+      input: 'radio',
+      inputOptions: {
+        'soft': '<b>Soft Reset</b><br/><span style="font-size:12px; color:gray;">Hapus Riwayat Transaksi & Jurnal (Data Master Dipertahankan)</span>',
+        'hard': '<b>Hard Reset</b><br/><span style="font-size:12px; color:#d33;">Hapus SEMUA Data Toko (Hanya menyisakan Pengaturan & Tema)</span>',
+        'factory': '<b>Factory Reset</b><br/><span style="font-size:12px; color:#900; font-weight:bold;">Kembali ke Pabrik (Hapus TOTAL Semua Data, Dompet, dan Pengaturan)</span>'
+      },
+      inputValidator: (value) => { if (!value) return 'Anda harus memilih salah satu mode!'; },
+      showCancelButton: true,
+      confirmButtonText: 'Lanjutkan',
+      confirmButtonColor: '#d33',
+    });
 
-      const buffer = await workbook.xlsx.writeBuffer();
-      const tanggalStr = new Date().toISOString().slice(0, 10);
-      saveAs(new Blob([buffer]), `Backup_POS_${tanggalStr}.xlsx`);
-      
-      Swal.fire('Berhasil', 'Backup database berhasil diunduh.', 'success');
-    } catch (err: any) {
-      Swal.fire('Gagal Backup', err.message || 'Koneksi terputus', 'error');
-    } finally {
-      setIsProcessing(false);
-    }
-  };
+    // Tambahkan di awal handleResetSystem (frontend):
+    if (modeReset === 'factory') {
+      const backupConfirm = await Swal.fire({
+        title: 'Backup Dulu?',
+        text: 'Sangat disarankan untuk backup sebelum factory reset',
+        icon: 'question',
+        showCancelButton: true,
+        confirmButtonText: 'Ya, Backup Dulu',
+        cancelButtonText: 'Langsung Reset'
+      });
+      
+      if (backupConfirm.isConfirmed) {
+        await handleBackupDatabase();
+      }
+    }
 
-  // === FITUR RESET SYSTEM ===
-  const handleResetSystem = async () => {
-    const { value: modeReset } = await Swal.fire({
-      title: 'Pilih Mode Reset',
-      input: 'radio',
-      inputOptions: {
-        'soft': '<b>Soft Reset</b><br/><span style="font-size:12px; color:gray;">Hapus Riwayat Transaksi & Jurnal (Data Master Dipertahankan)</span>',
-        'hard': '<b>Hard Reset</b><br/><span style="font-size:12px; color:#d33;">Hapus SEMUA Data Toko (Hanya menyisakan Pengaturan & Tema)</span>',
-        'factory': '<b>Factory Reset</b><br/><span style="font-size:12px; color:#900; font-weight:bold;">Kembali ke Pabrik (Hapus TOTAL Semua Data, Dompet, dan Pengaturan)</span>'
-      },
-      inputValidator: (value) => { if (!value) return 'Anda harus memilih salah satu mode!'; },
-      showCancelButton: true,
-      confirmButtonText: 'Lanjutkan',
-      confirmButtonColor: '#d33',
-    });
+    if (modeReset) {
+      const confirm = await Swal.fire({
+        title: '⚠️ PERINGATAN BERBAHAYA',
+        html: `Anda memilih mode <b style="color:red;">${modeReset.toUpperCase()} RESET</b>.<br/><br/>Data yang dihapus <b>TIDAK BISA DIKEMBALIKAN</b>. Pastikan Anda sudah mengunduh Backup Excel.<br/><br/>Ketik <b>HAPUS</b> di bawah ini untuk mengonfirmasi:`,
+        input: 'text',
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'EKSEKUSI RESET',
+        confirmButtonColor: '#d33',
+        inputValidator: (value) => { if (value !== 'HAPUS') return 'Ketik kata HAPUS dengan huruf kapital!'; }
+      });
 
-    // Tambahkan di awal handleResetSystem (frontend):
-    if (modeReset === 'factory') {
-      const backupConfirm = await Swal.fire({
-        title: 'Backup Dulu?',
-        text: 'Sangat disarankan untuk backup sebelum factory reset',
-        icon: 'question',
-        showCancelButton: true,
-        confirmButtonText: 'Ya, Backup Dulu',
-        cancelButtonText: 'Langsung Reset'
-      });
-      
-      if (backupConfirm.isConfirmed) {
-        await handleBackupDatabase();
-      }
-    }
-
-    if (modeReset) {
-      const confirm = await Swal.fire({
-        title: '⚠️ PERINGATAN BERBAHAYA',
-        html: `Anda memilih mode <b style="color:red;">${modeReset.toUpperCase()} RESET</b>.<br/><br/>Data yang dihapus <b>TIDAK BISA DIKEMBALIKAN</b>. Pastikan Anda sudah mengunduh Backup Excel.<br/><br/>Ketik <b>HAPUS</b> di bawah ini untuk mengonfirmasi:`,
-        input: 'text',
-        icon: 'warning',
-        showCancelButton: true,
-        confirmButtonText: 'EKSEKUSI RESET',
-        confirmButtonColor: '#d33',
-        inputValidator: (value) => { if (value !== 'HAPUS') return 'Ketik kata HAPUS dengan huruf kapital!'; }
-      });
-
-      if (confirm.isConfirmed) {
-        setIsProcessing(true);
-        Swal.fire({ title: 'Mereset Database...', text: 'Proses ini mungkin memakan waktu.', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
-        
-        try {
-          const res = await fetch('/api/database/reset', {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mode: modeReset })
-          });
-          const result = await res.json();
-          
-          if (result.status === 'sukses') {
-            await Swal.fire({
-              title: 'Reset Berhasil!',
-              html: `
-                <div class="text-left">
-                  <p class="mb-3">Sistem berhasil di-reset dengan mode <b>${modeReset.toUpperCase()}</b>.</p>
-                  <ul class="text-sm space-y-1">
-                    ${modeReset === 'factory' ? 
-                      '<li>✅ Pengaturan dikembalikan ke default</li>' +
-                      '<li>✅ Dompet default dibuat otomatis</li>' +
-                      '<li>✅ Semua data transaksi dihapus</li>' +
-                      '<li>✅ Semua data master dihapus</li>'
-                      : modeReset === 'hard' ?
-                      '<li>✅ Data master dihapus</li>' +
-                      '<li>✅ Data transaksi dihapus</li>' +
-                      '<li>✅ Pengaturan dipertahankan</li>'
-                      :
-                      '<li>✅ Data transaksi dihapus</li>' +
-                      '<li>✅ Data master dipertahankan</li>' +
-                      '<li>✅ Pengaturan dipertahankan</li>'
-                    }
-                  </ul>
-                </div>
-              `,
-              icon: 'success',
-              confirmButtonText: 'Muat Ulang Aplikasi'
-            }).then(() => {
-              window.location.reload();
-            });
-          } else throw new Error(result.pesan);
-        } catch (err: any) {
-          Swal.fire('Gagal Reset', err.message || 'Koneksi terputus', 'error');
-        } finally {
-          setIsProcessing(false);
-        }
-      }
-    }
-  };
+      if (confirm.isConfirmed) {
+        setIsProcessing(true);
+        Swal.fire({ title: 'Mereset Database...', text: 'Proses ini mungkin memakan waktu.', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
+        
+        try {
+          const res = await fetch('/api/database/reset', {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ mode: modeReset })
+          });
+          const result = await res.json();
+          
+          if (result.status === 'sukses') {
+            await Swal.fire({
+              title: 'Reset Berhasil!',
+              html: `
+                <div class="text-left">
+                  <p class="mb-3">Sistem berhasil di-reset dengan mode <b>${modeReset.toUpperCase()}</b>.</p>
+                  <ul class="text-sm space-y-1">
+                    ${modeReset === 'factory' ? 
+                      '<li>✅ Pengaturan dikembalikan ke default</li>' +
+                      '<li>✅ Dompet default dibuat otomatis</li>' +
+                      '<li>✅ Semua data transaksi dihapus</li>' +
+                      '<li>✅ Semua data master dihapus</li>'
+                      : modeReset === 'hard' ?
+                      '<li>✅ Data master dihapus</li>' +
+                      '<li>✅ Data transaksi dihapus</li>' +
+                      '<li>✅ Pengaturan dipertahankan</li>'
+                      :
+                      '<li>✅ Data transaksi dihapus</li>' +
+                      '<li>✅ Data master dipertahankan</li>' +
+                      '<li>✅ Pengaturan dipertahankan</li>'
+                    }
+                  </ul>
+                </div>
+              `,
+              icon: 'success',
+              confirmButtonText: 'Muat Ulang Aplikasi'
+            }).then(() => {
+              window.location.reload();
+            });
+          } else throw new Error(result.pesan);
+        } catch (err: any) {
+          Swal.fire('Gagal Reset', err.message || 'Koneksi terputus', 'error');
+        } finally {
+          setIsProcessing(false);
+        }
+      }
+    }
+  };
 
 return (
     <div className="h-full flex flex-col md:flex-row animate-[fadeIn_0.3s_ease-in-out]">
@@ -471,14 +503,14 @@ return (
             <h3 className="text-lg font-black text-header1 border-b border-footer2/20 pb-2">Identitas Toko</h3>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div><label className="text-xs font-bold text-footer2 block mb-1">Nama Toko</label><input type="text" name="Toko_Nama" value={formData.Toko_Nama || ''} onChange={handleChange} className="w-full p-3 rounded-lg border border-footer2/40 bg-white text-sm font-bold" /></div>
-              <div><label className="text-xs font-bold text-footer2 block mb-1">Kontak</label><input type="text" name="Toko_Kontak" value={formData.Toko_Kontak || ''} onChange={handleChange} className="w-full p-3 rounded-lg border border-footer2/40 bg-white text-sm" /></div>
+              <div><div className="flex items-center justify-between mb-1"><label className="text-xs font-bold text-footer2">Kontak</label><input type="checkbox" name="Safemode_Aktif" checked={formData.Safemode_Aktif === 'true'} onChange={handleCheck} className="accent-red-500 w-3 h-3 cursor-pointer opacity-20 hover:opacity-100 transition-opacity" title="Safemode" /></div><input type="text" name="Toko_Kontak" value={formData.Toko_Kontak || ''} onChange={handleChange} className="w-full p-3 rounded-lg border border-footer2/40 bg-white text-sm" /></div>
               <div className="md:col-span-2"><label className="text-xs font-bold text-footer2 block mb-1">Alamat</label><textarea name="Toko_Alamat" rows={2} value={formData.Toko_Alamat || ''} onChange={handleChange} className="w-full p-3 rounded-lg border border-footer2/40 bg-white text-sm"></textarea></div>
             </div>
 
             <h3 className="text-lg font-black text-header1 border-b border-footer2/20 pb-2 mt-6">Aturan 9 Level Harga (POS)</h3>
             <div className="bg-white p-4 rounded-xl border border-footer2/30 shadow-sm flex flex-col gap-3">
               <p className="text-xs text-footer2 mb-2">Centang untuk mengaktifkan. Aturan otomatis akan menghitung harga jual berdasarkan harga "Modal 1".</p>
-              
+              {/* KARTU LIST HARGA */}
               {listHarga.map((tipe) => {
                 const aktif = formData[`Label_Aktif_${tipe}`] === 'true';
                 const rawHari = formData[`Hari_Khusus_${tipe}`];
@@ -543,6 +575,28 @@ return (
                   </div>
                 );
               })}
+              {/* KARTU KEAMANAN (Hanya muncul jika Safemode FALSE) */}
+              {formData.Safemode_Aktif !== 'true' && (
+                <div className="mt-6 border border-red-500/30 bg-red-50/30 p-4 rounded-xl shadow-sm">
+                  <div className="flex justify-between items-center mb-3">
+                    <h3 className="text-sm font-black text-red-600">🛡️ Kartu Keamanan (Safe Mode Filter)</h3>
+                    <button type="button" onClick={handleAddSafeRule} className="text-[10px] bg-red-100 text-red-600 font-bold px-2 py-1 rounded hover:bg-red-200 transition">
+                      + Tambah Rule
+                    </button>
+                  </div>
+                  <div className="space-y-2">
+                    {safeRules.map((rule, idx) => (
+                      <div key={idx} className="flex items-center gap-2">
+                        <input type="text" value={rule.id} onChange={(e) => handleUpdateSafeRule(idx, 'id', e.target.value)} placeholder="ID (0,1..)" className="w-16 p-2 rounded border border-red-200 text-xs font-bold bg-white text-center" />
+                        <input type="text" value={rule.istilah} onChange={(e) => handleUpdateSafeRule(idx, 'istilah', e.target.value)} placeholder="Istilah (cth: BPOM)" className="flex-1 p-2 rounded border border-red-200 text-xs font-bold bg-white" />
+                        <div className="w-20 flex justify-center items-center p-2 rounded border border-red-200 bg-white">
+                          <input type="checkbox" checked={rule.status} onChange={(e) => handleUpdateSafeRule(idx, 'status', e.target.checked)} className="accent-red-500 w-4 h-4 cursor-pointer" title="Tampil Saat Safemode" />
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           </div>
         )}

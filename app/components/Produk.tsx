@@ -26,9 +26,27 @@ export default function Produk({ onClose }: { onClose: () => void }) {
   const [tipeHargaTampil, setTipeHargaTampil] = useState<string>('A');
   const [groupMode, setGroupMode] = useState<'none' | 'abjad' | 'kategori'>('none');
   const [openAccordions, setOpenAccordions] = useState<Set<string>>(new Set());
+
+  // State Panel Aset
+  const [showPanel, setShowPanel] = useState(false);
+  const [panelPriceType, setPanelPriceType] = useState<string>('A');
+  const [filterBpom, setFilterBpom] = useState<string>('ALL');
+  const [filterSektor, setFilterSektor] = useState<string>('ALL');
+
+  // Sinkronisasi default dropdown harga jika label aktif dimuat
+  useEffect(() => {
+    if (activeLabels.length > 0) {
+      if (!activeLabels.includes(tipeHargaTampil)) setTipeHargaTampil(activeLabels[0]);
+      if (!activeLabels.includes(panelPriceType)) setPanelPriceType(activeLabels[0]);
+    }
+  }, [activeLabels]);
   
   // State untuk scanner
   const [isModalScanner, setIsModalScanner] = useState(false);
+
+  // State Safemode (diekstrak dari pengaturan)
+  const [safemodeRules, setSafemodeRules] = useState<{ id: string; istilah: string; status: boolean }[]>([]);
+  const [isSafemode, setIsSafemode] = useState(false);
   
   // State untuk lazy load
   const [totalCount, setTotalCount] = useState(0);
@@ -53,8 +71,24 @@ export default function Produk({ onClose }: { onClose: () => void }) {
       const dataSet = await resSet.json();
       if (dataSet.status === 'sukses') {
         setPengaturan(dataSet.data);
+        
+        // 1. Set Label Harga Aktif
         const active = ['A','B','C','D','E','F','G','H','I'].filter(t => dataSet.data[`Label_Aktif_${t}`] === 'true');
         setActiveLabels(active);
+
+        // 2. Set Safemode & Rules
+        setIsSafemode(dataSet.data.Safemode_Aktif === 'true');
+        try {
+          const rules = dataSet.data.Safemode_Rules 
+            ? JSON.parse(dataSet.data.Safemode_Rules) 
+            : [
+                { id: '0', istilah: 'BPOM', status: true },
+                { id: '1', istilah: 'Non BPOM', status: true },
+                { id: '2', istilah: 'P-IRT', status: true },
+                { id: '3', istilah: 'SP', status: true }
+              ];
+          setSafemodeRules(rules);
+        } catch (e) { }
       }
 
       // Fetch batch pertama produk + total count
@@ -118,16 +152,62 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     fetchData();
   }, [fetchData]);
 
-  // Filter produk (client-side, instant)
+  // Daftar Sektor Unik dari produkList untuk pilihan dropdown filter
+  const daftarSektor = useMemo(() => {
+    const setSektor = new Set<string>();
+    produkList.forEach(p => {
+      if (p.kategori) setSektor.add(p.kategori);
+    });
+    return Array.from(setSektor).sort();
+  }, [produkList]);
+
+  // Filter produk (client-side, instant dengan tambahan BPOM & Sektor)
   const filteredProduk = useMemo(() => {
-    if (!searchQuery.trim()) return produkList;
-    const keyword = searchQuery.toLowerCase();
-    return produkList.filter(p => 
-      p.qr?.toLowerCase().includes(keyword) ||
-      p.nama_barang?.toLowerCase().includes(keyword) ||
-      p.kategori?.toLowerCase().includes(keyword)
-    );
-  }, [produkList, searchQuery]);
+    return produkList.filter(p => {
+      // 1. Pengecekan Safemode (Filter Absolut)
+      if (isSafemode) {
+        const ruleMatch = safemodeRules.find(r => r.id === p.status_bpom);
+        if (ruleMatch && !ruleMatch.status) return false; // Sembunyikan jika rule.status false
+      }
+
+      // 2. Filter Pencarian Teks
+      const keyword = searchQuery.toLowerCase();
+      const matchSearch = !searchQuery.trim() || 
+        p.qr?.toLowerCase().includes(keyword) ||
+        p.nama_barang?.toLowerCase().includes(keyword) ||
+        p.kategori?.toLowerCase().includes(keyword);
+
+      // 3. Filter BPOM dari Dropdown UI Action Bar
+      const matchBpom = filterBpom === 'ALL' || p.status_bpom === filterBpom;
+      
+      // 4. Filter Sektor
+      const matchSektor = filterSektor === 'ALL' || p.kategori === filterSektor;
+
+      return matchSearch && matchBpom && matchSektor;
+    });
+  }, [produkList, searchQuery, filterBpom, filterSektor, isSafemode, safemodeRules]);
+
+  // Kalkulasi Aset Berdasarkan Data yang Sedang Ter-filter
+  const assetKalkulasi = useMemo(() => {
+    let totalJenisItem = filteredProduk.length;
+    let totalStok = 0;
+    let totalModal = 0;
+    let totalJual = 0;
+    const keyHarga = `jual_${panelPriceType.toLowerCase()}`;
+
+    filteredProduk.forEach(p => {
+      const stok1 = Number(p.jumlah_1 || 0);
+      const stok2 = Number(p.jumlah_2 || 0);
+      const stok3 = Number(p.jumlah_3 || 0);
+      const totalStokBarang = stok1 + stok2 + stok3;
+
+      totalStok += totalStokBarang;
+      totalModal += (stok1 * Number(p.modal_1 || 0)) + (stok2 * Number(p.modal_2 || 0)) + (stok3 * Number(p.modal_3 || 0));
+      totalJual += totalStokBarang * Number(p[keyHarga] || 0);
+    });
+
+    return { totalJenisItem, totalStok, totalModal, totalJual };
+  }, [filteredProduk, panelPriceType]);
 
   // Produk yang ditampilkan (dengan lazy load display)
   const displayedProduk = useMemo(() => {
@@ -219,7 +299,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
       setIsEdit(true);
       setShowMultiGudang(produk.jumlah_2 > 0 || produk.modal_2 > 0 || produk.jumlah_3 > 0 || produk.modal_3 > 0);
     } else {
-      setForm({ qr: '', nama_barang: '', kategori: '', status_bpom: 'BPOM', tipe: 'Offline', jumlah_1: 0, modal_1: 0 });
+      setForm({ qr: '', nama_barang: '', kategori: '', status_bpom: '0', tipe: 'Offline', jumlah_1: 0, modal_1: 0 });
       setIsEdit(false);
       setShowMultiGudang(false);
     }
@@ -557,7 +637,9 @@ export default function Produk({ onClose }: { onClose: () => void }) {
                 <span>Harga</span>
                 <select value={tipeHargaTampil} onChange={(e) => setTipeHargaTampil(e.target.value)}
                   className="text-xs border border-footer2/30 rounded px-2 py-0.5 bg-white font-bold text-header1">
-                  {['A','B','C','D','E','F','G','H','I'].map(t => <option key={t} value={t}>{t}</option>)}
+                  {activeLabels.length > 0 
+                    ? activeLabels.map(t => <option key={t} value={t}>{pengaturan[`Label_Harga_${t}`] || `Tipe ${t}`}</option>)
+                    : <option value="A">Tipe A</option>}
                 </select>
               </div>
             </th>
@@ -583,7 +665,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
                   <td className="px-4 py-3"><span className="text-xs font-mono bg-bgutama px-2 py-1 rounded text-footer2">{p.qr}</span></td>
                   <td className="px-4 py-3"><span className="font-bold text-teksgelap">{p.nama_barang}</span></td>
                   <td className="px-4 py-3"><span className="text-xs font-bold bg-header1 text-white px-2 py-1 rounded uppercase">{p.kategori || 'Umum'}</span></td>
-                  <td className="px-4 py-3 text-center"><span className={`text-[10px] font-bold ${badgeBpom} px-2 py-1 rounded`}>{p.status_bpom || 'Non BPOM'}</span></td>
+                  <td className="px-4 py-3 text-center"><span className={`text-[10px] font-bold px-2 py-1 rounded ${(safemodeRules.find(r => r.id === p.status_bpom)?.istilah || '???') === '???' ? 'bg-gray-200 text-gray-500' : 'bg-header2/20 text-header1'}`}>{safemodeRules.find(r => r.id === p.status_bpom)?.istilah || '???'}</span></td>
                   <td className="px-4 py-3 text-center"><span className={`text-[10px] font-bold ${badgeTipe} px-2 py-1 rounded`}>{p.tipe || 'Offline'}</span></td>
                   <td className="px-4 py-3 text-center"><span className="font-bold text-teksgelap">{totalStok} pcs</span></td>
                   <td className="px-4 py-3 text-right">
@@ -719,6 +801,25 @@ export default function Produk({ onClose }: { onClose: () => void }) {
             </button>
           </div>
 
+          {/* Filter Sektor & BPOM di Action Bar */}
+          <div className="flex flex-wrap gap-2 items-center w-full lg:w-auto">
+            <select value={filterSektor} onChange={(e) => { setFilterSektor(e.target.value); setVisibleCount(30); }}
+              className="text-xs border border-footer2/30 rounded-lg px-2.5 py-2 bg-white font-semibold text-teksgelap focus:outline-none focus:border-header1">
+              <option value="ALL">Semua Sektor</option>
+              {daftarSektor.map(sek => <option key={sek} value={sek}>{sek}</option>)}
+            </select>
+
+            <select value={filterBpom} onChange={(e) => { setFilterBpom(e.target.value); setVisibleCount(30); }}
+              className="text-xs border border-footer2/30 rounded-lg px-2.5 py-2 bg-white font-semibold text-teksgelap focus:outline-none focus:border-header1">
+              <option value="ALL">Semua Label</option>
+              {safemodeRules
+                .filter(rule => !isSafemode || rule.status) // Sembunyikan opsi terlarang saat safemode
+                .map(rule => (
+                  <option key={rule.id} value={rule.id}>{rule.istilah}</option>
+              ))}
+            </select>
+          </div>
+
           <div className="relative w-full sm:w-64 lg:w-72">
             <input type="text" placeholder="Cari produk..." value={searchQuery} onChange={handleSearchChange}
               className="w-full pl-3 pr-8 py-2 rounded-lg border border-footer2/40 bg-white text-sm focus:outline-none focus:border-header1" />
@@ -729,6 +830,15 @@ export default function Produk({ onClose }: { onClose: () => void }) {
                 </svg>
               </button>
             )}
+          </div>
+          <div className="flex bg-bgutama rounded-lg p-1 border border-footer2/20 shrink-0">
+              {/* Tombol Kalkulasi Aset */}
+              <button onClick={() => setShowPanel(true)} className="bg-white border border-footer2/40 text-teksgelap p-2 md:px-3 md:py-2 rounded-lg text-sm font-semibold shadow-sm hover:border-header2 hover:text-header2 transition flex items-center justify-center" title="Kalkulasi Aset">
+                <svg className="w-5 h-5 md:w-4 md:h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z"></path>
+                </svg>
+                <span className="hidden md:inline ml-2">Aset</span>
+              </button>
           </div>
         </div>
       </div>
@@ -799,13 +909,16 @@ export default function Produk({ onClose }: { onClose: () => void }) {
                     className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1" />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-footer2">Status BPOM</label>
-                  <select name="status_bpom" value={form.status_bpom || 'BPOM'} onChange={handleInputChange}
-                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1">
-                    <option value="BPOM">BPOM</option>
-                    <option value="Non BPOM">Non BPOM</option>
-                    <option value="P-IRT">P-IRT</option>
-                    <option value="SP">SP</option>
+                  <label className="text-xs font-bold text-footer2">Status / Label</label>
+                  <select 
+                    name="status_bpom" 
+                    value={form.status_bpom || (safemodeRules.length > 0 ? safemodeRules[0].id : '0')} 
+                    onChange={handleInputChange}
+                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                  >
+                    {safemodeRules.map(rule => (
+                      <option key={rule.id} value={rule.id}>{rule.istilah}</option>
+                    ))}
                   </select>
                 </div>
                 <div>
@@ -923,6 +1036,68 @@ export default function Produk({ onClose }: { onClose: () => void }) {
           </div>
         </div>
       )}
+
+      {/* Panel Kalkulasi Aset */}
+      <div className={`fixed inset-y-0 right-0 z-[80] w-80 bg-bgutama shadow-2xl transform transition-transform duration-300 ease-in-out border-l border-footer2/20 flex flex-col ${showPanel ? 'translate-x-0' : 'translate-x-full'}`}>
+        <div className="px-4 py-4 border-b border-footer2/20 flex justify-between items-center bg-white shadow-sm">
+          <h3 className="font-bold text-header1 text-lg flex items-center gap-2">
+            <svg className="w-5 h-5 text-aksen" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            Kalkulasi Aset
+          </h3>
+          <button onClick={() => setShowPanel(false)} className="text-footer2 hover:text-aksen bg-bgutama p-1.5 rounded-lg transition">
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+          </button>
+        </div>
+        
+        <div className="flex-1 overflow-y-auto p-4 space-y-4">
+          {/* Info Indikator Filter Aktif */}
+          {(filterSektor !== 'ALL' || filterBpom !== 'ALL' || searchQuery) && (
+            <div className="bg-header2/10 border border-header2/30 rounded-lg p-2.5 text-[11px] text-header1">
+              <span className="font-bold block mb-0.5">Filter Aktif:</span>
+              {filterSektor !== 'ALL' && <div>• Sektor: {filterSektor}</div>}
+              {filterBpom !== 'ALL' && <div>• Status: {filterBpom === 'BPOM' ? 'BPOM' : 'Non BPOM'}</div>}
+              {searchQuery && <div>• Keyword: "{searchQuery}"</div>}
+            </div>
+          )}
+
+          {/* SB1: Rincian Total Item & Stok */}
+          <div className="bg-white p-4 rounded-xl border border-footer2/20 shadow-sm relative overflow-hidden group">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform"><svg className="w-24 h-24" fill="currentColor" viewBox="0 0 20 20"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg></div>
+            <p className="text-xs font-bold text-footer2 mb-1">Rincian Total Item</p>
+            <div className="space-y-1 mt-2">
+              <div className="flex justify-between text-xs border-b border-footer2/10 pb-1">
+                <span className="text-footer2">Jenis Produk Unik:</span>
+                <span className="font-bold text-teksgelap">{assetKalkulasi.totalJenisItem} Item</span>
+              </div>
+              <div className="flex justify-between text-xs pt-0.5">
+                <span className="text-footer2">Akumulasi Fisik Stok:</span>
+                <span className="font-black text-header1">{assetKalkulasi.totalStok.toLocaleString('id-ID')} Pcs</span>
+              </div>
+            </div>
+          </div>
+
+          {/* SB2: Total Modal */}
+          <div className="bg-white p-4 rounded-xl border border-footer2/20 shadow-sm relative overflow-hidden group">
+            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform"><svg className="w-24 h-24" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd"></path></svg></div>
+            <p className="text-xs font-bold text-footer2 mb-1">Total Nilai Modal</p>
+            <h4 className="text-xl font-black text-amber-600">Rp {assetKalkulasi.totalModal.toLocaleString('id-ID')}</h4>
+          </div>
+
+          {/* SB3: Prakiraan Jual */}
+          <div className="bg-white p-4 rounded-xl border border-header2/30 shadow-md relative overflow-hidden group">
+            <div className="flex justify-between items-start mb-3 relative z-10">
+              <p className="text-xs font-bold text-footer2">Prakiraan Aset Jual</p>
+              <select value={panelPriceType} onChange={(e) => setPanelPriceType(e.target.value)} className="text-xs border border-header2/50 rounded-lg px-2 py-1 bg-header2/10 font-bold text-header1 focus:outline-none cursor-pointer hover:bg-header2/20 transition">
+                {activeLabels.length > 0 
+                  ? activeLabels.map(t => <option key={t} value={t}>{pengaturan[`Label_Harga_${t}`] || `Harga ${t}`}</option>) 
+                  : <option value="A">Harga A</option>}
+              </select>
+            </div>
+            <div className="absolute -right-4 -bottom-4 opacity-10 group-hover:scale-110 transition-transform text-header2"><svg className="w-24 h-24" fill="currentColor" viewBox="0 0 20 20"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"></path></svg></div>
+            <h4 className="text-xl font-black text-header2 relative z-10">Rp {assetKalkulasi.totalJual.toLocaleString('id-ID')}</h4>
+          </div>
+        </div>
+      </div>
     </div>
   );
 }
