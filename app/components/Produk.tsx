@@ -9,6 +9,14 @@ const saveAs = require('file-saver') as (data: any, filename?: string, noAutoBom
 declare const XLSX: any;
 const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
 
+// Default safemode rules
+const DEFAULT_SAFEMODE_RULES = [
+  { id: '0', istilah: 'BPOM', status: true },
+  { id: '1', istilah: 'Non BPOM', status: true },
+  { id: '2', istilah: 'P-IRT', status: true },
+  { id: '3', istilah: 'SP', status: true }
+];
+
 export default function Produk({ onClose }: { onClose: () => void }) {
   // State utama
   const [loading, setLoading] = useState(true);
@@ -39,13 +47,13 @@ export default function Produk({ onClose }: { onClose: () => void }) {
       if (!activeLabels.includes(tipeHargaTampil)) setTipeHargaTampil(activeLabels[0]);
       if (!activeLabels.includes(panelPriceType)) setPanelPriceType(activeLabels[0]);
     }
-  }, [activeLabels]);
+  }, [activeLabels, tipeHargaTampil, panelPriceType]);
   
   // State untuk scanner
   const [isModalScanner, setIsModalScanner] = useState(false);
 
   // State Safemode (diekstrak dari pengaturan)
-  const [safemodeRules, setSafemodeRules] = useState<{ id: string; istilah: string; status: boolean }[]>([]);
+  const [safemodeRules, setSafemodeRules] = useState<{ id: string; istilah: string; status: boolean }[]>(DEFAULT_SAFEMODE_RULES);
   const [isSafemode, setIsSafemode] = useState(false);
   
   // State untuk lazy load
@@ -61,9 +69,94 @@ export default function Produk({ onClose }: { onClose: () => void }) {
   const totalBatchesRef = useRef(0);
   const isSearchingRef = useRef(false);
   const scannerRef = useRef<Html5Qrcode | null>(null);
+  
+  // Ref untuk menyimpan safemodeRules terbaru tanpa trigger re-render
+  const safemodeRulesRef = useRef(safemodeRules);
+  
+  // Update ref setiap kali safemodeRules berubah
+  useEffect(() => {
+    safemodeRulesRef.current = safemodeRules;
+  }, [safemodeRules]);
 
-  // Fetch data dengan hybrid lazy load
-  const fetchData = useCallback(async () => {
+  // Helper: Validasi safemode rules (TIDAK bergantung pada state)
+  const validateSafemodeRules = (rules: any[]): { id: string; istilah: string; status: boolean }[] => {
+    if (!Array.isArray(rules)) return DEFAULT_SAFEMODE_RULES;
+    
+    const validRules = rules.filter(rule => 
+      rule && 
+      typeof rule.id === 'string' && 
+      rule.id.trim() !== '' &&
+      typeof rule.istilah === 'string' && 
+      rule.istilah.trim() !== '' &&
+      typeof rule.status === 'boolean'
+    ).map(rule => ({
+      id: rule.id.trim(),
+      istilah: rule.istilah.trim(),
+      status: rule.status
+    }));
+    
+    return validRules.length > 0 ? validRules : DEFAULT_SAFEMODE_RULES;
+  };
+
+  // Helper: Normalisasi status_bpom produk (MENGGUNAKAN REF, bukan state)
+  const normalizeProduk = (produk: any, rules?: { id: string; istilah: string; status: boolean }[]) => {
+    if (!produk) return produk;
+    
+    // Gunakan rules dari parameter atau ref
+    const activeRules = rules || safemodeRulesRef.current;
+    
+    // Jika status_bpom kosong atau undefined, set default
+    if (!produk.status_bpom) {
+      produk.status_bpom = activeRules.length > 0 ? activeRules[0].id : '0';
+      return produk;
+    }
+    
+    // Jika status_bpom adalah string istilah (legacy data), konversi ke ID
+    if (isNaN(Number(produk.status_bpom))) {
+      const matchedRule = activeRules.find(
+        r => r.istilah.toLowerCase() === produk.status_bpom.toLowerCase()
+      );
+      produk.status_bpom = matchedRule ? matchedRule.id : '';
+    }
+    
+    return produk;
+  };
+
+  // Helper: Get status BPOM label
+  const getBpomLabel = (statusBpom: string): string => {
+    const rule = safemodeRules.find(r => r.id === statusBpom);
+    return rule ? rule.istilah : 'Tidak Diketahui';
+  };
+
+  // Helper: Get status BPOM badge class
+  const getBpomBadgeClass = (statusBpom: string): string => {
+    const rule = safemodeRules.find(r => r.id === statusBpom);
+    
+    if (!rule) {
+      return 'bg-gray-200 text-gray-500';
+    }
+    
+    if (isSafemode && !rule.status) {
+      return 'bg-red-100 text-red-600 line-through';
+    }
+    
+    // Custom warna berdasarkan tipe istilah
+    const istilahLower = rule.istilah.toLowerCase();
+    if (istilahLower.includes('bpom')) {
+      return 'bg-header2/20 text-header1';
+    } else if (istilahLower.includes('non')) {
+      return 'bg-amber-100 text-amber-700';
+    } else if (istilahLower.includes('p-irt') || istilahLower.includes('irt')) {
+      return 'bg-blue-100 text-blue-700';
+    } else if (istilahLower.includes('sp')) {
+      return 'bg-purple-100 text-purple-700';
+    }
+    
+    return 'bg-gray-100 text-gray-700';
+  };
+
+  // Fetch data dengan hybrid lazy load (TIDAK menggunakan useCallback)
+  const fetchData = async () => {
     setLoading(true);
     try {
       // Fetch pengaturan (kecil, langsung semua)
@@ -76,19 +169,21 @@ export default function Produk({ onClose }: { onClose: () => void }) {
         const active = ['A','B','C','D','E','F','G','H','I'].filter(t => dataSet.data[`Label_Aktif_${t}`] === 'true');
         setActiveLabels(active);
 
-        // 2. Set Safemode & Rules
+        // 2. Set Safemode & Rules dengan validasi
         setIsSafemode(dataSet.data.Safemode_Aktif === 'true');
         try {
           const rules = dataSet.data.Safemode_Rules 
-            ? JSON.parse(dataSet.data.Safemode_Rules) 
-            : [
-                { id: '0', istilah: 'BPOM', status: true },
-                { id: '1', istilah: 'Non BPOM', status: true },
-                { id: '2', istilah: 'P-IRT', status: true },
-                { id: '3', istilah: 'SP', status: true }
-              ];
+            ? validateSafemodeRules(JSON.parse(dataSet.data.Safemode_Rules))
+            : DEFAULT_SAFEMODE_RULES;
+          
+          // Update state dan ref secara bersamaan
           setSafemodeRules(rules);
-        } catch (e) { }
+          safemodeRulesRef.current = rules;
+        } catch (e) {
+          console.error('Error parsing safemode rules:', e);
+          setSafemodeRules(DEFAULT_SAFEMODE_RULES);
+          safemodeRulesRef.current = DEFAULT_SAFEMODE_RULES;
+        }
       }
 
       // Fetch batch pertama produk + total count
@@ -96,14 +191,17 @@ export default function Produk({ onClose }: { onClose: () => void }) {
       const dataProd = await resProd.json();
       
       if (dataProd.status === 'sukses') {
-        setProdukList(dataProd.data);
+        // Normalisasi data produk menggunakan rules yang baru di-set
+        const currentRules = safemodeRulesRef.current;
+        const normalizedData = dataProd.data.map((p: any) => normalizeProduk(p, currentRules));
+        setProdukList(normalizedData);
         setTotalCount(dataProd.total);
-        setLoadedCount(dataProd.data.length);
+        setLoadedCount(normalizedData.length);
         currentBatchRef.current = 1;
         totalBatchesRef.current = Math.ceil(dataProd.total / batchSize);
         setVisibleCount(30);
         
-        if (dataProd.data.length < dataProd.total) {
+        if (normalizedData.length < dataProd.total) {
           startProgressiveLoading();
         }
       }
@@ -112,7 +210,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     } finally {
       setLoading(false);
     }
-  }, []);
+  };
 
   // Progressive loading di background
   const startProgressiveLoading = async () => {
@@ -130,12 +228,15 @@ export default function Produk({ onClose }: { onClose: () => void }) {
         const data = await res.json();
         
         if (data.status === 'sukses') {
+          const currentRules = safemodeRulesRef.current;
+          const normalizedBatch = data.data.map((p: any) => normalizeProduk(p, currentRules));
+          
           setProdukList(prev => {
             const existing = new Set(prev.map(p => p.qr));
-            const newData = data.data.filter((p: any) => !existing.has(p.qr));
+            const newData = normalizedBatch.filter((p: any) => !existing.has(p.qr));
             return [...prev, ...newData];
           });
-          setLoadedCount(prev => prev + data.data.length);
+          setLoadedCount(prev => prev + normalizedBatch.length);
           currentBatchRef.current = page;
           await new Promise(r => setTimeout(r, 200));
         }
@@ -148,9 +249,11 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     setProgressiveLoading(false);
   };
 
+  // Effect untuk initial load HANYA SEKALI
   useEffect(() => {
     fetchData();
-  }, [fetchData]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []); // ← Empty dependency array, hanya jalan sekali
 
   // Daftar Sektor Unik dari produkList untuk pilihan dropdown filter
   const daftarSektor = useMemo(() => {
@@ -161,13 +264,27 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     return Array.from(setSektor).sort();
   }, [produkList]);
 
+  // Daftar Tipe Unik dari riwayat produk
+  const daftarTipe = useMemo(() => {
+    const setTipe = new Set<string>();
+    produkList.forEach(p => {
+      if (p.tipe) setTipe.add(p.tipe);
+    });
+    return Array.from(setTipe).sort();
+  }, [produkList]);
+
   // Filter produk (client-side, instant dengan tambahan BPOM & Sektor)
   const filteredProduk = useMemo(() => {
     return produkList.filter(p => {
       // 1. Pengecekan Safemode (Filter Absolut)
       if (isSafemode) {
         const ruleMatch = safemodeRules.find(r => r.id === p.status_bpom);
-        if (ruleMatch && !ruleMatch.status) return false; // Sembunyikan jika rule.status false
+        
+        // SELALU sembunyikan jika status tidak dikenal saat safemode aktif
+        if (!ruleMatch) return false;
+        
+        // Sembunyikan jika rule.status false
+        if (!ruleMatch.status) return false;
       }
 
       // 2. Filter Pencarian Teks
@@ -195,18 +312,77 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     let totalJual = 0;
     const keyHarga = `jual_${panelPriceType.toLowerCase()}`;
 
+    // Rincian per Stock Batch
+    const rincianBatch = {
+      batch1: {
+        label: 'Stock Batch 1',
+        totalStok: 0,
+        totalModal: 0,
+        totalJual: 0,
+        jumlahItem: 0
+      },
+      batch2: {
+        label: 'Stock Batch 2',
+        totalStok: 0,
+        totalModal: 0,
+        totalJual: 0,
+        jumlahItem: 0
+      },
+      batch3: {
+        label: 'Stock Batch 3',
+        totalStok: 0,
+        totalModal: 0,
+        totalJual: 0,
+        jumlahItem: 0
+      }
+    };
+
     filteredProduk.forEach(p => {
       const stok1 = Number(p.jumlah_1 || 0);
       const stok2 = Number(p.jumlah_2 || 0);
       const stok3 = Number(p.jumlah_3 || 0);
       const totalStokBarang = stok1 + stok2 + stok3;
+      const hargaJual = Number(p[keyHarga] || 0);
 
+      // Total keseluruhan
       totalStok += totalStokBarang;
-      totalModal += (stok1 * Number(p.modal_1 || 0)) + (stok2 * Number(p.modal_2 || 0)) + (stok3 * Number(p.modal_3 || 0));
-      totalJual += totalStokBarang * Number(p[keyHarga] || 0);
+      totalModal += (stok1 * Number(p.modal_1 || 0)) + 
+                    (stok2 * Number(p.modal_2 || 0)) + 
+                    (stok3 * Number(p.modal_3 || 0));
+      totalJual += totalStokBarang * hargaJual;
+
+      // Rincian Batch 1
+      if (stok1 > 0) {
+        rincianBatch.batch1.totalStok += stok1;
+        rincianBatch.batch1.totalModal += stok1 * Number(p.modal_1 || 0);
+        rincianBatch.batch1.totalJual += stok1 * hargaJual;
+        rincianBatch.batch1.jumlahItem += 1;
+      }
+
+      // Rincian Batch 2
+      if (stok2 > 0) {
+        rincianBatch.batch2.totalStok += stok2;
+        rincianBatch.batch2.totalModal += stok2 * Number(p.modal_2 || 0);
+        rincianBatch.batch2.totalJual += stok2 * hargaJual;
+        rincianBatch.batch2.jumlahItem += 1;
+      }
+
+      // Rincian Batch 3
+      if (stok3 > 0) {
+        rincianBatch.batch3.totalStok += stok3;
+        rincianBatch.batch3.totalModal += stok3 * Number(p.modal_3 || 0);
+        rincianBatch.batch3.totalJual += stok3 * hargaJual;
+        rincianBatch.batch3.jumlahItem += 1;
+      }
     });
 
-    return { totalJenisItem, totalStok, totalModal, totalJual };
+    return { 
+      totalJenisItem, 
+      totalStok, 
+      totalModal, 
+      totalJual,
+      rincianBatch 
+    };
   }, [filteredProduk, panelPriceType]);
 
   // Produk yang ditampilkan (dengan lazy load display)
@@ -295,11 +471,28 @@ export default function Produk({ onClose }: { onClose: () => void }) {
 
   const openModal = (produk?: any) => {
     if (produk) {
-      setForm(produk);
+      // Normalisasi produk saat edit
+      const normalizedProduk = normalizeProduk({...produk});
+      setForm(normalizedProduk);
       setIsEdit(true);
-      setShowMultiGudang(produk.jumlah_2 > 0 || produk.modal_2 > 0 || produk.jumlah_3 > 0 || produk.modal_3 > 0);
+      setShowMultiGudang(
+        Number(normalizedProduk.jumlah_2) > 0 || 
+        Number(normalizedProduk.modal_2) > 0 || 
+        Number(normalizedProduk.jumlah_3) > 0 || 
+        Number(normalizedProduk.modal_3) > 0
+      );
     } else {
-      setForm({ qr: '', nama_barang: '', kategori: '', status_bpom: '0', tipe: 'Offline', jumlah_1: 0, modal_1: 0 });
+      // Default form untuk produk baru
+      const defaultStatusBpom = safemodeRules.length > 0 ? safemodeRules[0].id : '0';
+      setForm({ 
+        qr: '', 
+        nama_barang: '', 
+        kategori: '', 
+        status_bpom: defaultStatusBpom, 
+        tipe: 'Offline', 
+        jumlah_1: 0, 
+        modal_1: 0 
+      });
       setIsEdit(false);
       setShowMultiGudang(false);
     }
@@ -316,10 +509,20 @@ export default function Produk({ onClose }: { onClose: () => void }) {
     });
     
     try {
+      // Validasi status_bpom sebelum simpan
+      const formToSave = { ...form };
+      if (formToSave.status_bpom && isNaN(Number(formToSave.status_bpom))) {
+        // Jika status_bpom adalah string istilah, konversi ke ID
+        const matchedRule = safemodeRules.find(
+          r => r.istilah.toLowerCase() === formToSave.status_bpom.toLowerCase()
+        );
+        formToSave.status_bpom = matchedRule ? matchedRule.id : '';
+      }
+      
       const res = await fetch('/api/produk', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(form)
+        body: JSON.stringify(formToSave)
       });
       
       const data = await res.json();
@@ -420,14 +623,15 @@ export default function Produk({ onClose }: { onClose: () => void }) {
           formulae: ['"Makanan,Minuman,Snack,Produk Kecantikan,Produk Kesehatan,Perlengkapan,Lainnya"'],
           showErrorMessage: true, errorTitle: 'Input tidak valid', error: 'Pilih kategori yang sesuai'
         };
+        const bpomDropdownList = safemodeRules.map(r => r.istilah).join(',');
         row.getCell('bpom').dataValidation = {
           type: 'list', allowBlank: true,
-          formulae: ['"BPOM,Non BPOM,P-IRT,SP"'],
+          formulae: [`"${bpomDropdownList}"`],
           showErrorMessage: true, errorTitle: 'Input tidak valid', error: 'Pilih status BPOM yang sesuai'
         };
         row.getCell('tipe').dataValidation = {
           type: 'list', allowBlank: true,
-          formulae: ['"Offline,Online,Keduanya"'],
+          formulae: [`"${daftarTipe.join(',')}"`],
           showErrorMessage: true, errorTitle: 'Input tidak valid', error: 'Pilih tipe yang sesuai'
         };
         
@@ -439,8 +643,9 @@ export default function Produk({ onClose }: { onClose: () => void }) {
           });
       }
 
+      const dummyLabelBpom = safemodeRules.length > 0 ? safemodeRules[0].istilah : '';
       const row2 = worksheet.addRow({
-        qr: 'BRG-001', nama: 'Produk Contoh', kategori: 'Makanan', bpom: 'BPOM', tipe: 'Offline',
+        qr: 'BRG-001', nama: 'Produk Contoh', kategori: 'Makanan', bpom: dummyLabelBpom, tipe: 'Offline',
         jml1: 10, modal1: 5000, jml2: 20, modal2: 4500, jml3: 50, modal3: 4000,
         jualA: 8000, jualB: 7500, jualC: 7000, jualD: 6500, jualE: 6000,
         jualF: 5500, jualG: 5000, jualH: 4500, jualI: 4000
@@ -482,6 +687,9 @@ export default function Produk({ onClose }: { onClose: () => void }) {
           headers[colNumber] = cell.text || cell.value?.toString() || '';
         });
 
+        let adaLabelAsing = false;
+        const labelAsingList = new Set<string>();
+
         worksheet.eachRow((row, rowNumber) => {
           if (rowNumber === 1) return;
           let rowData: any = {};
@@ -494,11 +702,29 @@ export default function Produk({ onClose }: { onClose: () => void }) {
                                       'jual_a','jual_b','jual_c','jual_d','jual_e','jual_f',
                                       'jual_g','jual_h','jual_i'];
               let cellValue;
-              if (numericColumns.includes(header) && cell.value !== null && cell.value !== undefined) {
+
+              // MAPPING LOGIC UNTUK BPOM
+              if (header === 'status_bpom') {
+                const textVal = (cell.text || cell.value?.toString() || '').trim();
+                // Cari apakah teks Excel cocok dengan istilah di pengaturan
+                const matchRule = safemodeRules.find(r => 
+                  r.istilah.toLowerCase() === textVal.toLowerCase()
+                );
+                if (matchRule) {
+                  cellValue = matchRule.id; // Simpan ID-nya
+                } else {
+                  cellValue = ''; // Simpan blank jika tidak cocok
+                  if (textVal !== '') {
+                    adaLabelAsing = true;
+                    labelAsingList.add(textVal);
+                  }
+                }
+              } else if (numericColumns.includes(header) && cell.value !== null && cell.value !== undefined) {
                 cellValue = Number(cell.value) || 0;
               } else {
                 cellValue = cell.text || cell.value?.toString() || '';
               }
+
               rowData[header] = cellValue;
               if (cellValue !== '' && cellValue !== 0) isRowEmpty = false;
             }
@@ -527,7 +753,15 @@ export default function Produk({ onClose }: { onClose: () => void }) {
 
         const result = await res.json();
         if (result.status === 'sukses') {
-          Swal.fire('Berhasil', `${jsonData.length} data produk ditambahkan!`, 'success');
+          const labelAsingText = Array.from(labelAsingList).join(', ');
+          const pesanPeringatan = adaLabelAsing 
+            ? `<br/><br/><span style="color:#d33; font-size:12px;">Peringatan: Label status berikut tidak ditemukan di database: <strong>${labelAsingText}</strong>. Sistem tetap menyimpannya dengan membiarkan kolom tersebut kosong agar Anda bisa mengeditnya nanti.</span>` 
+            : '';
+          Swal.fire({
+            title: 'Berhasil',
+            html: `${jsonData.length} data produk ditambahkan!${pesanPeringatan}`,
+            icon: 'success'
+          });
           fetchData();
         } else {
           throw new Error(result.pesan || 'Gagal menyimpan ke database');
@@ -568,6 +802,8 @@ export default function Produk({ onClose }: { onClose: () => void }) {
         const stok = Number(p.jumlah_1 || 0) + Number(p.jumlah_2 || 0) + Number(p.jumlah_3 || 0);
         const modalAktif = getModalAktif(p);
         const hargaJual = getHargaByTipe(p, tipeHargaTampil);
+        const bpomLabel = getBpomLabel(p.status_bpom);
+        const bpomBadgeClass = getBpomBadgeClass(p.status_bpom);
 
         return (
           <div key={index} onClick={() => openModal(p)}
@@ -576,7 +812,7 @@ export default function Produk({ onClose }: { onClose: () => void }) {
               <div className="flex gap-1 flex-wrap mb-1">
                 <span className="text-[10px] font-bold bg-bgutama text-footer2 px-2 py-0.5 rounded border border-footer2/20">Stok: {stok}</span>
                 <span className="text-[10px] font-bold bg-header2/10 text-header1 px-2 py-0.5 rounded border border-header2/20">Rp{modalAktif.toLocaleString('id-ID')}</span>
-                <span className="text-[10px] font-bold bg-header1/10 text-header1 px-2 py-0.5 rounded border border-header1/20">Tipe {tipeHargaTampil}</span>
+                <span className={`text-[10px] font-bold px-2 py-0.5 rounded border ${bpomBadgeClass}`}>{bpomLabel}</span>
               </div>
               <h4 className="font-bold text-teksgelap text-sm leading-tight line-clamp-2">{p.nama_barang}</h4>
             </div>
@@ -668,10 +904,11 @@ export default function Produk({ onClose }: { onClose: () => void }) {
           ) : (
             displayedProduk.map((p, index) => {
               const totalStok = Number(p.jumlah_1 || 0) + Number(p.jumlah_2 || 0) + Number(p.jumlah_3 || 0);
-              const badgeBpom = p.status_bpom === 'BPOM' ? 'bg-header2/20 text-header1' : 'bg-amber-500/20 text-amber-700';
               const badgeTipe = p.tipe === 'Keduanya' ? 'bg-blue-500/20 text-blue-700' 
                 : p.tipe === 'Online' ? 'bg-purple-500/20 text-purple-700' 
                 : 'bg-gray-500/20 text-gray-700';
+              const bpomLabel = getBpomLabel(p.status_bpom);
+              const bpomBadgeClass = getBpomBadgeClass(p.status_bpom);
 
               return (
                 <tr key={index} className={`border-b border-footer2/10 hover:bg-bgutama/50 transition ${index % 2 === 0 ? 'bg-white' : 'bg-bgutama/30'}`}>
@@ -679,7 +916,11 @@ export default function Produk({ onClose }: { onClose: () => void }) {
                   <td className="px-4 py-3"><span className="text-xs font-mono bg-bgutama px-2 py-1 rounded text-footer2">{p.qr}</span></td>
                   <td className="px-4 py-3"><span className="font-bold text-teksgelap">{p.nama_barang}</span></td>
                   <td className="px-4 py-3"><span className="text-xs font-bold bg-header1 text-white px-2 py-1 rounded uppercase">{p.kategori || 'Umum'}</span></td>
-                  <td className="px-4 py-3 text-center"><span className={`text-[10px] font-bold px-2 py-1 rounded ${(safemodeRules.find(r => r.id === p.status_bpom)?.istilah || '???') === '???' ? 'bg-gray-200 text-gray-500' : 'bg-header2/20 text-header1'}`}>{safemodeRules.find(r => r.id === p.status_bpom)?.istilah || '???'}</span></td>
+                  <td className="px-4 py-3 text-center">
+                    <span className={`text-[10px] font-bold px-2 py-1 rounded ${bpomBadgeClass}`}>
+                      {bpomLabel}
+                    </span>
+                  </td>
                   <td className="px-4 py-3 text-center"><span className={`text-[10px] font-bold ${badgeTipe} px-2 py-1 rounded`}>{p.tipe || 'Offline'}</span></td>
                   <td className="px-4 py-3 text-center"><span className="font-bold text-teksgelap">{totalStok} pcs</span></td>
                   <td className="px-4 py-3 text-right">
@@ -937,12 +1178,17 @@ export default function Produk({ onClose }: { onClose: () => void }) {
                 </div>
                 <div>
                   <label className="text-xs font-bold text-footer2">Tipe</label>
-                  <select name="tipe" value={form.tipe || 'Offline'} onChange={handleInputChange}
-                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1">
-                    <option value="Offline">Offline</option>
-                    <option value="Online">Online</option>
-                    <option value="Keduanya">Keduanya</option>
-                  </select>
+                  {/* Menggabungkan input teks dengan datalist agar berfungsi seperti combobox */}
+                  <input type="text" name="tipe" list="list-tipe-produk" value={form.tipe || ''} onChange={handleInputChange} placeholder="Pilih atau ketik baru..."
+                    className="w-full p-2.5 mt-1 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1" />
+                  <datalist id="list-tipe-produk">
+                    <option value="Offline" />
+                    <option value="Online" />
+                    <option value="Keduanya" />
+                    {daftarTipe.filter(t => !['Offline', 'Online', 'Keduanya'].includes(t)).map(sek => (
+                      <option key={sek} value={sek} />
+                    ))}
+                  </datalist>
                 </div>
               </div>
 
@@ -1052,14 +1298,18 @@ export default function Produk({ onClose }: { onClose: () => void }) {
       )}
 
       {/* Panel Kalkulasi Aset */}
-      <div className={`fixed inset-y-0 right-0 z-[80] w-80 bg-bgutama shadow-2xl transform transition-transform duration-300 ease-in-out border-l border-footer2/20 flex flex-col ${showPanel ? 'translate-x-0' : 'translate-x-full'}`}>
+      <div className={`fixed inset-y-0 right-0 z-[80] w-96 bg-bgutama shadow-2xl transform transition-transform duration-300 ease-in-out border-l border-footer2/20 flex flex-col ${showPanel ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="px-4 py-4 border-b border-footer2/20 flex justify-between items-center bg-white shadow-sm">
           <h3 className="font-bold text-header1 text-lg flex items-center gap-2">
-            <svg className="w-5 h-5 text-aksen" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path></svg>
+            <svg className="w-5 h-5 text-aksen" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M12 8c-1.657 0-3 .895-3 2s1.343 2 3 2 3 .895 3 2-1.343 2-3 2m0-8c1.11 0 2.08.402 2.599 1M12 8V7m0 1v8m0 0v1m0-1c-1.11 0-2.08-.402-2.599-1M21 12a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+            </svg>
             Kalkulasi Aset
           </h3>
           <button onClick={() => setShowPanel(false)} className="text-footer2 hover:text-aksen bg-bgutama p-1.5 rounded-lg transition">
-            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path></svg>
+            <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M6 18L18 6M6 6l12 12"></path>
+            </svg>
           </button>
         </div>
         
@@ -1069,47 +1319,174 @@ export default function Produk({ onClose }: { onClose: () => void }) {
             <div className="bg-header2/10 border border-header2/30 rounded-lg p-2.5 text-[11px] text-header1">
               <span className="font-bold block mb-0.5">Filter Aktif:</span>
               {filterSektor !== 'ALL' && <div>• Sektor: {filterSektor}</div>}
-              {filterBpom !== 'ALL' && <div>• Status: {filterBpom === 'BPOM' ? 'BPOM' : 'Non BPOM'}</div>}
+              {filterBpom !== 'ALL' && <div>• Status: {getBpomLabel(filterBpom)}</div>}
               {searchQuery && <div>• Keyword: "{searchQuery}"</div>}
             </div>
           )}
 
-          {/* SB1: Rincian Total Item & Stok */}
-          <div className="bg-white p-4 rounded-xl border border-footer2/20 shadow-sm relative overflow-hidden group">
-            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform"><svg className="w-24 h-24" fill="currentColor" viewBox="0 0 20 20"><path d="M5 3a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2V5a2 2 0 00-2-2H5zM5 11a2 2 0 00-2 2v2a2 2 0 002 2h2a2 2 0 002-2v-2a2 2 0 00-2-2H5zM11 5a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V5zM11 13a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg></div>
-            <p className="text-xs font-bold text-footer2 mb-1">Rincian Total Item</p>
-            <div className="space-y-1 mt-2">
-              <div className="flex justify-between text-xs border-b border-footer2/10 pb-1">
-                <span className="text-footer2">Jenis Produk Unik:</span>
-                <span className="font-bold text-teksgelap">{assetKalkulasi.totalJenisItem} Item</span>
+          {/* RINGKASAN TOTAL */}
+          <div className="bg-gradient-to-r from-header1 to-header2 p-4 rounded-xl text-white shadow-lg relative overflow-hidden">
+            <div className="absolute -right-4 -top-4 opacity-10">
+              <svg className="w-24 h-24" fill="currentColor" viewBox="0 0 20 20">
+                <path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"></path>
+              </svg>
+            </div>
+            <p className="text-xs font-bold text-white/80 mb-2">Total Keseluruhan Aset</p>
+            <div className="space-y-2">
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-white/80">Jenis Produk:</span>
+                <span className="font-bold">{assetKalkulasi.totalJenisItem} Item</span>
               </div>
-              <div className="flex justify-between text-xs pt-0.5">
-                <span className="text-footer2">Akumulasi Fisik Stok:</span>
-                <span className="font-black text-header1">{assetKalkulasi.totalStok.toLocaleString('id-ID')} Pcs</span>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-white/80">Total Stok:</span>
+                <span className="font-bold">{assetKalkulasi.totalStok.toLocaleString('id-ID')} Pcs</span>
+              </div>
+              <div className="flex justify-between items-center">
+                <span className="text-xs text-white/80">Total Modal:</span>
+                <span className="font-bold">Rp {assetKalkulasi.totalModal.toLocaleString('id-ID')}</span>
+              </div>
+              <div className="border-t border-white/30 pt-2">
+                <div className="flex justify-between items-center">
+                  <span className="text-xs text-white/80">Prakiraan Jual ({getBpomLabel(panelPriceType)}):</span>
+                </div>
+                <div className="text-xl font-black mt-1">
+                  Rp {assetKalkulasi.totalJual.toLocaleString('id-ID')}
+                </div>
               </div>
             </div>
           </div>
 
-          {/* SB2: Total Modal */}
-          <div className="bg-white p-4 rounded-xl border border-footer2/20 shadow-sm relative overflow-hidden group">
-            <div className="absolute -right-4 -top-4 opacity-5 group-hover:scale-110 transition-transform"><svg className="w-24 h-24" fill="currentColor" viewBox="0 0 20 20"><path fillRule="evenodd" d="M4 4a2 2 0 00-2 2v4a2 2 0 002 2V6h10a2 2 0 00-2-2H4zm2 6a2 2 0 012-2h8a2 2 0 012 2v4a2 2 0 01-2 2H8a2 2 0 01-2-2v-4zm6 4a2 2 0 100-4 2 2 0 000 4z" clipRule="evenodd"></path></svg></div>
-            <p className="text-xs font-bold text-footer2 mb-1">Total Nilai Modal</p>
-            <h4 className="text-xl font-black text-amber-600">Rp {assetKalkulasi.totalModal.toLocaleString('id-ID')}</h4>
-          </div>
-
-          {/* SB3: Prakiraan Jual */}
-          <div className="bg-white p-4 rounded-xl border border-header2/30 shadow-md relative overflow-hidden group">
-            <div className="flex justify-between items-start mb-3 relative z-10">
-              <p className="text-xs font-bold text-footer2">Prakiraan Aset Jual</p>
-              <select value={panelPriceType} onChange={(e) => setPanelPriceType(e.target.value)} className="text-xs border border-header2/50 rounded-lg px-2 py-1 bg-header2/10 font-bold text-header1 focus:outline-none cursor-pointer hover:bg-header2/20 transition">
+          {/* Pilihan Tipe Harga */}
+          <div className="bg-white p-4 rounded-xl border border-header2/30 shadow-md">
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-xs font-bold text-footer2 mb-1">Tipe Harga untuk Prakiraan Jual</p>
+                <p className="text-[10px] text-footer2">Pilih tipe harga yang digunakan</p>
+              </div>
+              <select 
+                value={panelPriceType} 
+                onChange={(e) => setPanelPriceType(e.target.value)} 
+                className="text-xs border border-header2/50 rounded-lg px-3 py-2 bg-header2/10 font-bold text-header1 focus:outline-none cursor-pointer hover:bg-header2/20 transition"
+              >
                 {activeLabels.length > 0 
-                  ? activeLabels.map(t => <option key={t} value={t}>{pengaturan[`Label_Harga_${t}`] || `Harga ${t}`}</option>) 
+                  ? activeLabels.map(t => (
+                      <option key={t} value={t}>
+                        {pengaturan[`Label_Harga_${t}`] || `Harga ${t}`}
+                      </option>
+                    )) 
                   : <option value="A">Harga A</option>}
               </select>
             </div>
-            <div className="absolute -right-4 -bottom-4 opacity-10 group-hover:scale-110 transition-transform text-header2"><svg className="w-24 h-24" fill="currentColor" viewBox="0 0 20 20"><path d="M2 11a1 1 0 011-1h2a1 1 0 011 1v5a1 1 0 01-1 1H3a1 1 0 01-1-1v-5zM8 7a1 1 0 011-1h2a1 1 0 011 1v9a1 1 0 01-1 1H9a1 1 0 01-1-1V7zM14 4a1 1 0 011-1h2a1 1 0 011 1v12a1 1 0 01-1 1h-2a1 1 0 01-1-1V4z"></path></svg></div>
-            <h4 className="text-xl font-black text-header2 relative z-10">Rp {assetKalkulasi.totalJual.toLocaleString('id-ID')}</h4>
           </div>
+
+          {/* RINCIAN STOCK BATCH 1 */}
+          <div className="bg-white p-4 rounded-xl border border-header2/30 shadow-md relative overflow-hidden">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <h4 className="font-bold text-header1 text-sm">📦 Stock Batch 1</h4>
+                <p className="text-[10px] text-footer2 mt-0.5">Gudang Utama</p>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-1 rounded ${
+                assetKalkulasi.rincianBatch.batch1.totalStok > 0 
+                  ? 'bg-green-100 text-green-700' 
+                  : 'bg-gray-100 text-gray-500'
+              }`}>
+                {assetKalkulasi.rincianBatch.batch1.totalStok > 0 ? 'Aktif' : 'Kosong'}
+              </span>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-footer2">Jumlah Item:</span>
+                <span className="font-semibold text-teksgelap">{assetKalkulasi.rincianBatch.batch1.jumlahItem} jenis</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-footer2">Total Stok:</span>
+                <span className="font-bold text-teksgelap">{assetKalkulasi.rincianBatch.batch1.totalStok.toLocaleString('id-ID')} pcs</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-footer2">Total Modal:</span>
+                <span className="font-semibold text-amber-600">Rp {assetKalkulasi.rincianBatch.batch1.totalModal.toLocaleString('id-ID')}</span>
+              </div>
+              <div className="flex justify-between text-xs border-t border-footer2/10 pt-2">
+                <span className="text-footer2">Prakiraan Jual:</span>
+                <span className="font-bold text-header2">Rp {assetKalkulasi.rincianBatch.batch1.totalJual.toLocaleString('id-ID')}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* RINCIAN STOCK BATCH 2 */}
+          <div className="bg-white p-4 rounded-xl border border-footer2/20 shadow-md relative overflow-hidden">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <h4 className="font-bold text-header1 text-sm">📦 Stock Batch 2</h4>
+                <p className="text-[10px] text-footer2 mt-0.5">Gudang Kedua</p>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-1 rounded ${
+                assetKalkulasi.rincianBatch.batch2.totalStok > 0 
+                  ? 'bg-green-100 text-green-700' 
+                  : 'bg-gray-100 text-gray-500'
+              }`}>
+                {assetKalkulasi.rincianBatch.batch2.totalStok > 0 ? 'Aktif' : 'Kosong'}
+              </span>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-footer2">Jumlah Item:</span>
+                <span className="font-semibold text-teksgelap">{assetKalkulasi.rincianBatch.batch2.jumlahItem} jenis</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-footer2">Total Stok:</span>
+                <span className="font-bold text-teksgelap">{assetKalkulasi.rincianBatch.batch2.totalStok.toLocaleString('id-ID')} pcs</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-footer2">Total Modal:</span>
+                <span className="font-semibold text-amber-600">Rp {assetKalkulasi.rincianBatch.batch2.totalModal.toLocaleString('id-ID')}</span>
+              </div>
+              <div className="flex justify-between text-xs border-t border-footer2/10 pt-2">
+                <span className="text-footer2">Prakiraan Jual:</span>
+                <span className="font-bold text-header2">Rp {assetKalkulasi.rincianBatch.batch2.totalJual.toLocaleString('id-ID')}</span>
+              </div>
+            </div>
+          </div>
+
+          {/* RINCIAN STOCK BATCH 3 */}
+          <div className="bg-white p-4 rounded-xl border border-footer2/20 shadow-md relative overflow-hidden">
+            <div className="flex justify-between items-start mb-3">
+              <div>
+                <h4 className="font-bold text-header1 text-sm">📦 Stock Batch 3</h4>
+                <p className="text-[10px] text-footer2 mt-0.5">Gudang Ketiga</p>
+              </div>
+              <span className={`text-[10px] font-bold px-2 py-1 rounded ${
+                assetKalkulasi.rincianBatch.batch3.totalStok > 0 
+                  ? 'bg-green-100 text-green-700' 
+                  : 'bg-gray-100 text-gray-500'
+              }`}>
+                {assetKalkulasi.rincianBatch.batch3.totalStok > 0 ? 'Aktif' : 'Kosong'}
+              </span>
+            </div>
+            
+            <div className="space-y-2">
+              <div className="flex justify-between text-xs">
+                <span className="text-footer2">Jumlah Item:</span>
+                <span className="font-semibold text-teksgelap">{assetKalkulasi.rincianBatch.batch3.jumlahItem} jenis</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-footer2">Total Stok:</span>
+                <span className="font-bold text-teksgelap">{assetKalkulasi.rincianBatch.batch3.totalStok.toLocaleString('id-ID')} pcs</span>
+              </div>
+              <div className="flex justify-between text-xs">
+                <span className="text-footer2">Total Modal:</span>
+                <span className="font-semibold text-amber-600">Rp {assetKalkulasi.rincianBatch.batch3.totalModal.toLocaleString('id-ID')}</span>
+              </div>
+              <div className="flex justify-between text-xs border-t border-footer2/10 pt-2">
+                <span className="text-footer2">Prakiraan Jual:</span>
+                <span className="font-bold text-header2">Rp {assetKalkulasi.rincianBatch.batch3.totalJual.toLocaleString('id-ID')}</span>
+              </div>
+            </div>
+          </div>
+
         </div>
       </div>
     </div>

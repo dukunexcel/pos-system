@@ -229,7 +229,22 @@ export default function Pengaturan({ onClose }: { onClose: () => void }) {
   };
 
   const handleAddSafeRule = () => {
-    const newRules = [...safeRules, { id: String(safeRules.length), istilah: '', status: true }];
+    if (safeRules.length >= 10) {
+      Toast.fire({ icon: 'warning', title: 'Maksimal 10 Rule (ID 0-9)' });
+      return;
+    }
+    // Cari angka terkecil (0-9) yang belum terpakai
+    const usedIds = safeRules.map(r => parseInt(r.id));
+    let nextId = 0;
+    while (usedIds.includes(nextId)) nextId++;
+
+    const newRules = [...safeRules, { id: String(nextId), istilah: '', status: true }];
+    setSafeRules(newRules);
+    setFormData(prev => ({ ...prev, Safemode_Rules: JSON.stringify(newRules) }));
+  };
+
+  const handleDeleteSafeRule = (index: number) => {
+    const newRules = safeRules.filter((_, i) => i !== index);
     setSafeRules(newRules);
     setFormData(prev => ({ ...prev, Safemode_Rules: JSON.stringify(newRules) }));
   };
@@ -587,11 +602,18 @@ return (
                   <div className="space-y-2">
                     {safeRules.map((rule, idx) => (
                       <div key={idx} className="flex items-center gap-2">
-                        <input type="text" value={rule.id} onChange={(e) => handleUpdateSafeRule(idx, 'id', e.target.value)} placeholder="ID (0,1..)" className="w-16 p-2 rounded border border-red-200 text-xs font-bold bg-white text-center" />
+                        {/* ID sekarang menjadi Label statis */}
+                        <div className="w-12 p-2 rounded border border-red-200 text-xs font-black bg-red-100 text-red-600 text-center">
+                          {rule.id}
+                        </div>
                         <input type="text" value={rule.istilah} onChange={(e) => handleUpdateSafeRule(idx, 'istilah', e.target.value)} placeholder="Istilah (cth: BPOM)" className="flex-1 p-2 rounded border border-red-200 text-xs font-bold bg-white" />
-                        <div className="w-20 flex justify-center items-center p-2 rounded border border-red-200 bg-white">
+                        <div className="w-12 flex justify-center items-center p-2 rounded border border-red-200 bg-white">
                           <input type="checkbox" checked={rule.status} onChange={(e) => handleUpdateSafeRule(idx, 'status', e.target.checked)} className="accent-red-500 w-4 h-4 cursor-pointer" title="Tampil Saat Safemode" />
                         </div>
+                        {/* Tombol Hapus */}
+                        <button type="button" onClick={() => handleDeleteSafeRule(idx)} className="w-10 p-2 rounded border border-red-200 bg-white text-footer2 hover:bg-red-500 hover:text-white hover:border-red-500 transition-colors flex items-center justify-center" title="Hapus Rule">
+                          ✕
+                        </button>
                       </div>
                     ))}
                   </div>

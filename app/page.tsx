@@ -14,6 +14,15 @@ import Laporan from './components/Laporan';
 import Marketplace from './components/Marketplace';
 import MutasiDompet from './components/MutasiDompet';
 import LaporanModul from './components/LaporanModul';
+import Absen from './components/Absen';
+
+// Default safemode rules
+const DEFAULT_SAFEMODE_RULES = [
+  { id: '0', istilah: 'BPOM', status: true },
+  { id: '1', istilah: 'Non BPOM', status: true },
+  { id: '2', istilah: 'P-IRT', status: true },
+  { id: '3', istilah: 'SP', status: true }
+];
 
 export default function POSSystem() {
   const [isAuth, setIsAuth] = useState(false);
@@ -21,10 +30,15 @@ export default function POSSystem() {
   const [activeModule, setActiveModule] = useState(''); 
   
   const [tema, setTema] = useState({} as React.CSSProperties);
+  
+  // === STATE SAFE MODE ===
+  const [isSafemode, setIsSafemode] = useState(false);
+  const [safemodeRules, setSafemodeRules] = useState(DEFAULT_SAFEMODE_RULES);
 
   useEffect(() => {
     if (localStorage.getItem("pos_device_auth") === "true") setIsAuth(true);
     fetchPengaturanTema();
+    fetchSafemodeConfig();
   }, []);
 
   const fetchPengaturanTema = async () => {
@@ -46,6 +60,96 @@ export default function POSSystem() {
       }
     } catch (error) {}
   };
+
+  // === FETCH SAFEMODE CONFIG ===
+  const fetchSafemodeConfig = async () => {
+    try {
+      const res = await fetch('/api/pengaturan');
+      const data = await res.json();
+      if (data.status === 'sukses' && data.data) {
+        const config = data.data;
+        
+        // Baca status safemode
+        const safemodeAktif = config.Safemode_Aktif === 'true' || 
+                               config.Safemode_Aktif === true ||
+                               String(config.Safemode_Aktif).toLowerCase() === 'true';
+        setIsSafemode(safemodeAktif);
+        
+        // Baca rules
+        try {
+          const rules = config.Safemode_Rules 
+            ? JSON.parse(config.Safemode_Rules)
+            : DEFAULT_SAFEMODE_RULES;
+          setSafemodeRules(rules);
+        } catch (e) {
+          setSafemodeRules(DEFAULT_SAFEMODE_RULES);
+        }
+      }
+    } catch (error) {
+      console.error('Gagal memuat safemode:', error);
+    }
+  };
+
+  // === TOGGLE SAFE MODE ===
+  const toggleSafeMode = async () => {
+    try {
+      const newSafemodeState = !isSafemode;
+      
+      // Update state lokal
+      setIsSafemode(newSafemodeState);
+      
+      // Simpan ke pengaturan (API)
+      const res = await fetch('/api/pengaturan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          Safemode_Aktif: newSafemodeState ? 'true' : 'false' 
+        })
+      });
+      
+      const data = await res.json();
+      
+      if (data.status === 'sukses') {
+        // Toast halus untuk konfirmasi
+        Swal.fire({ 
+          toast: true, 
+          position: 'top-end', 
+          icon: 'info', 
+          title: newSafemodeState ? 'Mode Terbatas' : 'Mode Normal',
+          showConfirmButton: false, 
+          timer: 1000 
+        });
+      } else {
+        throw new Error(data.pesan || 'Gagal menyimpan');
+      }
+    } catch (err) {
+      console.error('Gagal toggle safemode:', err);
+      // Rollback jika gagal
+      setIsSafemode(prev => !prev);
+      Swal.fire({ 
+        toast: true, 
+        position: 'top-end', 
+        icon: 'error', 
+        title: 'Gagal mengubah mode',
+        showConfirmButton: false, 
+        timer: 1500 
+      });
+    }
+  };
+
+  // === KEYBOARD SHORTCUT GLOBAL ===
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // TOGGLE SAFE MODE: Ctrl + Shift + S
+      if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+        e.preventDefault();
+        toggleSafeMode();
+      }
+    };
+    
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [isSafemode]); // Dependency pada isSafemode
 
   const handleLogin = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -112,11 +216,21 @@ export default function POSSystem() {
       {/* DASHBOARD UTAMA */}
       {isAuth && activeModule === '' && (
         <div className="absolute z-40 w-[95%] md:w-full max-w-3xl max-h-[90vh] bg-bglite/95 backdrop-blur-md rounded-2xl shadow-2xl border border-white/50 flex flex-col">
-          <div className="bg-header1 px-6 py-4 flex justify-between items-center text-white rounded-t-2xl">
+          <div className="bg-header1 px-6 py-4 flex justify-between items-center text-white rounded-t-2xl relative">
             <div className="flex items-center gap-3">
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zM14 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2zM14 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2v-2z"></path></svg>
               <span className="font-bold tracking-wide">Menu Utama</span>
             </div>
+            
+            {/* Indikator safemode tersamar */}
+            {isSafemode && (
+              <div className="absolute bottom-0 left-1/2 transform -translate-x-1/2 opacity-30 hover:opacity-100 transition-opacity duration-300 cursor-help" title="Mode Terbatas Aktif">
+                <svg className="w-3 h-3 text-white/50" fill="currentColor" viewBox="0 0 20 20">
+                  <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"></path>
+                </svg>
+              </div>
+            )}
+            
             <button onClick={handleLogout} className="text-white hover:text-red-200 text-xs font-semibold bg-footer1/50 px-3 py-1.5 rounded-lg transition">Kunci Ulang</button>
           </div>
           
@@ -170,6 +284,16 @@ export default function POSSystem() {
                  <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M17 20h5v-2a3 3 0 00-5.356-1.857M17 20H7m10 0v-2c0-.656-.126-1.283-.356-1.857M7 20H2v-2a3 3 0 015.356-1.857M7 20v-2c0-.656.126-1.283.356-1.857m0 0a5.002 5.002 0 019.288 0M15 7a3 3 0 11-6 0 3 3 0 016 0zm6 3a2 2 0 11-4 0 2 2 0 014 0zM7 10a2 2 0 11-4 0 2 2 0 014 0z"></path></svg>
               </div>
               <span className="mt-3 text-xs md:text-sm font-bold text-teksgelap">Karyawan</span>
+            </button>
+
+            {/* Tombol Absen */}
+            <button onClick={() => setActiveModule('absen')} className="flex flex-col items-center p-3 rounded-xl hover:bg-footer2/10 transition group border border-transparent hover:border-footer2/20">
+              <div className="w-14 h-14 bg-footer2 text-white rounded-lg flex items-center justify-center shadow-md group-hover:-translate-y-1 transition transform">
+                <svg className="w-7 h-7" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"></path>
+                </svg>
+              </div>
+              <span className="mt-3 text-xs md:text-sm font-bold text-teksgelap">Absen</span>
             </button>
 
             {/* Tombol Supplier */}
@@ -265,8 +389,11 @@ export default function POSSystem() {
       {activeModule === 'dompet' && (
         <div className="absolute inset-0 z-50 w-full h-full"><MutasiDompet onClose={() => setActiveModule('')} /></div>
       )}
+      {activeModule === 'absen' && (
+        <div className="absolute inset-0 z-50 w-full h-full"><Absen onClose={() => setActiveModule('')} /></div>
+      )}
       {/* Fallback untuk menu yang belum dibangun komponennya */}
-      {activeModule !== '' && activeModule !== 'pengaturan' && activeModule !== 'produk' && activeModule !== 'pelanggan' && activeModule !== 'karyawan' && activeModule !== 'supplier' && activeModule !== 'restok' && activeModule !== 'kasir' && activeModule !== 'laporan' && activeModule !== 'jurnal' && activeModule !== 'modul_online' && activeModule !== 'mutasi' && activeModule !== 'dompet' && (
+      {activeModule !== '' && activeModule !== 'pengaturan' && activeModule !== 'produk' && activeModule !== 'pelanggan' && activeModule !== 'karyawan' && activeModule !== 'supplier' && activeModule !== 'restok' && activeModule !== 'kasir' && activeModule !== 'laporan' && activeModule !== 'jurnal' && activeModule !== 'modul_online' && activeModule !== 'mutasi' && activeModule !== 'dompet' && activeModule !== 'absen' && (
         <div className="absolute inset-0 z-50 w-full h-full bg-bgutama flex flex-col items-center justify-center">
           <div className="bg-white p-8 rounded-2xl shadow-xl flex flex-col items-center">
             <svg className="w-16 h-16 text-footer2 mb-4 animate-bounce" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth="2" d="M19 11H5m14 0a2 2 0 012 2v6a2 2 0 01-2 2H5a2 2 0 01-2-2v-6a2 2 0 012-2m14 0V9a2 2 0 00-2-2M5 11V9a2 2 0 012-2m0 0V5a2 2 0 012-2h6a2 2 0 012 2v2M7 7h10"></path></svg>

@@ -3,7 +3,6 @@ import { useState, useEffect } from 'react';
 import ExcelJS from 'exceljs';
 import Swal from 'sweetalert2';
 
-// file-saver is untyped in this project, so avoid module augmentation for the default import.
 const saveAs = require('file-saver') as (
   data: any,
   filename?: string,
@@ -11,7 +10,6 @@ const saveAs = require('file-saver') as (
 ) => void;
 declare const XLSX: any;
 const Toast = Swal.mixin({ toast: true, position: 'top-end', showConfirmButton: false, timer: 3000 });
-
 
 // === Helper: Format Google Drive URL menjadi thumbnail ===
 function formatDriveUrl(url: string | null | undefined) {
@@ -28,21 +26,30 @@ function getAvatarUrl(nama: string) {
   return `https://ui-avatars.com/api/?name=${encodeURIComponent(nama)}&background=F3F3E9&color=5A7718&bold=true`;
 }
 
-
 export default function Karyawan({ onClose }: { onClose: () => void }) {
   const [dataList, setDataList] = useState<any[]>([]);
   const [showModal, setShowModal] = useState(false);
   const [form, setForm] = useState<any>({});
   const [isEdit, setIsEdit] = useState(false);
 
-
-  useEffect(() => { fetchData(); }, []);
   const fetchData = async () => {
     const res = await fetch('/api/karyawan');
     const d = await res.json();
     if (d.status === 'sukses') setDataList(d.data);
   };
 
+  // ✅ HANYA SATU useEffect dengan polling
+  useEffect(() => {
+    fetchData(); // Initial load
+    
+    // Polling setiap 5 detik untuk update status sesi
+    const interval = setInterval(() => {
+      fetchData();
+    }, 5000);
+    
+    // Cleanup saat komponen unmount
+    return () => clearInterval(interval);
+  }, []);
 
   const handleInputChange = (e: any) => setForm({ ...form, [e.target.name]: e.target.value });
   const handleCheck = (e: any) => setForm({ ...form, [e.target.name]: e.target.checked ? 'true' : 'false' });
@@ -55,13 +62,11 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
     }
   };
 
-
   const openModal = (item?: any) => {
     if (item) { setForm(item); setIsEdit(true); }
     else { setForm({ id_karyawan: `KRY-${Date.now().toString().slice(-5)}`, status_aktif: 'true', peran: 'Kasir' }); setIsEdit(false); }
     setShowModal(true);
   };
-
 
   const handleSimpan = async (e: any) => {
     e.preventDefault();
@@ -83,19 +88,16 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
     }
   };
 
-
   const handlePasteLinkFoto = (e: any) => {
     setForm({ ...form, foto: e.target.value });
   };
 
-
-// === Fungsi Download Template (Client-Side dengan Proteksi) ===
+  // === Fungsi Download Template ===
   const handleDownloadTemplate = async () => {
     try {
       const workbook = new ExcelJS.Workbook();
       const worksheet = workbook.addWorksheet('DataKaryawan');
 
-      // 1. Tentukan Struktur Kolom (Baris 1)
       worksheet.columns = [
         { header: 'id_karyawan', key: 'id', width: 15 },
         { header: 'nama_karyawan', key: 'nama', width: 25 },
@@ -105,24 +107,19 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
         { header: 'status_aktif', key: 'status', width: 15 }
       ];
 
-      // 2. Beri Styling pada Header agar Elegan
       const headerRow = worksheet.getRow(1);
       headerRow.font = { bold: true, color: { argb: 'FFFFFFFF' } };
-      // Menggunakan warna Cyan untuk header
       headerRow.fill = { type: 'pattern', pattern: 'solid', fgColor: { argb: 'FF00ACC1' } };
       
-      // 3. Kunci Seluruh Sheet dengan Password (misal: "rahasia")
       await worksheet.protect('rahasia', {
         selectLockedCells: true,
         selectUnlockedCells: true,
       });
 
-      // 4. Buka Kunci (Unlock) untuk Baris 2 hingga 1000 agar bisa diisi data
       for (let i = 2; i <= 1000; i++) {
         worksheet.getRow(i).protection = { locked: false };
       }
 
-      // 5. Tambahkan Contoh Data di Baris 2
       const row2 = worksheet.addRow({
         id: 'KSR-01',
         nama: 'Ahmad Yahya',
@@ -131,10 +128,8 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
         pin: '123456',
         status: 'Aktif'
       });
-      // Buka kunci baris contoh ini agar bisa dihapus/diedit pengguna
-      row2.protection = { locked: false }; 
+      row2.protection = { locked: false };
 
-      // 6. Proses Download
       const buffer = await workbook.xlsx.writeBuffer();
       saveAs(new Blob([buffer]), 'Template_Karyawan.xlsx');
       
@@ -143,13 +138,12 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
     }
   };
 
-// === Fungsi Upload & Eksekusi Data (Menggunakan ExcelJS) ===
+  // === Fungsi Upload Excel ===
   const handleUploadExcel = async (e: any) => {
     const file = e.target.files[0];
     if (!file) return;
 
-    // Reset input agar bisa upload file yang sama berulang kali
-    e.target.value = null; 
+    e.target.value = null;
 
     const reader = new FileReader();
     reader.onload = async (event: any) => {
@@ -158,7 +152,6 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
         const workbook = new ExcelJS.Workbook();
         await workbook.xlsx.load(buffer);
         
-        // Ambil sheet pertama
         const worksheet = workbook.worksheets[0];
         if (!worksheet) {
             Swal.fire('Error', 'Tidak ada data di dalam file Excel', 'error');
@@ -168,14 +161,12 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
         const jsonData: any[] = [];
         const headers: string[] = [];
 
-        // Ambil nama kolom (Header) dari Baris 1
         worksheet.getRow(1).eachCell((cell, colNumber) => {
           headers[colNumber] = cell.text || cell.value?.toString() || '';
         });
 
-        // Iterasi Baris 2 ke bawah untuk mengambil data
         worksheet.eachRow((row, rowNumber) => {
-          if (rowNumber === 1) return; // Lewati baris judul
+          if (rowNumber === 1) return;
           
           let rowData: any = {};
           let isRowEmpty = true;
@@ -189,7 +180,6 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
             }
           });
 
-          // Hanya masukkan baris yang benar-benar ada isinya
           if (!isRowEmpty) {
             jsonData.push(rowData);
           }
@@ -200,7 +190,6 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
           return;
         }
 
-        // Validasi kolom wajib (NOT NULL) sesuai struktur database Anda
         const missingMandatory = jsonData.some(row => !row.id_karyawan || !row.nama_karyawan);
         if (missingMandatory) {
           Swal.fire('Error', 'Kolom id_karyawan dan nama_karyawan wajib diisi di semua baris!', 'error');
@@ -209,7 +198,6 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
 
         Swal.fire({ title: 'Memproses...', didOpen: () => Swal.showLoading(), allowOutsideClick: false });
 
-        // Kirim ke API Endpoint
         const res = await fetch('/api/karyawan/bulk', {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
@@ -219,7 +207,7 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
         const result = await res.json();
         if (result.status === 'sukses') {
           Swal.fire('Berhasil', `${jsonData.length} data karyawan ditambahkan!`, 'success');
-          // loadData(); // Panggil fungsi refresh state Anda di sini
+          fetchData();
         } else {
           throw new Error(result.pesan || 'Gagal menyimpan ke database');
         }
@@ -229,7 +217,6 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
       }
     };
     
-    // Gunakan readAsArrayBuffer karena ExcelJS membacanya sebagai buffer
     reader.readAsArrayBuffer(file);
   };
 
@@ -260,30 +247,68 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
     }
   };
 
-  // === Toggle Status Sesi / POS ===
+  // ✅ PERBAIKAN: Toggle Status Sesi
   const handleToggleSesi = async (id: string, nama: string, checked: boolean) => {
-    if (checked) {
-      Toast.fire({ icon: 'warning', title: 'Status hanya bisa dikunci melalui login Kasir.' });
+  const karyawan = dataList.find(k => k.id_karyawan === id);
+  const sesiSaatIni = karyawan?.sesi_perangkat || karyawan?.sesi || 'Tutup';
+  
+  if (checked) {
+    // Toggle ON → Admin ingin membuka sesi
+    if (sesiSaatIni === 'Buka') {
+      Toast.fire({ icon: 'info', title: `Sesi ${nama} sudah terbuka.` });
       return;
     }
-    Toast.fire({ icon: 'info', title: `Membebaskan sesi ${nama}...` });
+    
+    Toast.fire({ icon: 'info', title: `Membuka sesi ${nama}...` });
     try {
       await fetch('/api/karyawan/status-sesi', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ id, status: 'Buka' })
       });
-      Toast.fire({ icon: 'success', title: `Sesi ${nama} berhasil direset.` });
+      Toast.fire({ icon: 'success', title: `Sesi ${nama} berhasil dibuka.` });
       fetchData();
     } catch {
-      Swal.fire('Error', 'Gagal mereset status', 'error');
+      Swal.fire('Error', 'Gagal membuka sesi', 'error');
     }
-  };
-
+  } else {
+    // Toggle OFF → Admin ingin menutup sesi
+    if (sesiSaatIni === 'Tutup') {
+      Toast.fire({ icon: 'info', title: `Sesi ${nama} sudah tertutup.` });
+      return;
+    }
+    
+    // Jika sedang sibuk, konfirmasi dulu
+    if (sesiSaatIni === 'Sibuk') {
+      const konfirmasi = await Swal.fire({
+        title: 'Reset Sesi Sibuk?',
+        text: `${nama} sedang melayani transaksi. Tutup paksa?`,
+        icon: 'warning',
+        showCancelButton: true,
+        confirmButtonText: 'Ya, Tutup',
+        cancelButtonText: 'Batal'
+      });
+      
+      if (!konfirmasi.isConfirmed) return;
+    }
+    
+    Toast.fire({ icon: 'info', title: `Menutup sesi ${nama}...` });
+    try {
+      await fetch('/api/karyawan/status-sesi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id, status: 'Tutup' })
+      });
+      Toast.fire({ icon: 'success', title: `Sesi ${nama} berhasil ditutup.` });
+      fetchData();
+    } catch {
+      Swal.fire('Error', 'Gagal menutup sesi', 'error');
+    }
+  }
+};
 
   return (
     <div className="h-full flex flex-col bg-bgutama animate-[fadeIn_0.3s_ease-in-out]">
-
       {/* Header Modul */}
       <header className="bg-white px-4 md:px-8 py-4 flex justify-between items-center shadow-sm sticky top-0 z-10 border-b border-footer2/20">
         <div className="flex items-center gap-3">
@@ -313,7 +338,7 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
         </label>
       </div>
 
-      {/* Grid Karyawan — Sesuai Tampilan Lampiran 1 */}
+      {/* Grid Karyawan */}
       <main className="flex-1 overflow-y-auto px-4 md:px-8 pb-8">
         <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 md:gap-6">
           {dataList.length === 0 ? (
@@ -327,16 +352,39 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
               const statusAktif = k.status_aktif === 'true' ? 'Aktif' : 'Nonaktif';
               const badgeColor = k.status_aktif === 'true' ? 'bg-header2/20 text-header1' : 'bg-aksen/20 text-aksen';
 
-              // Status sesi/POS — sesi disesuaikan dari status_aktif atau field sesi
-              const isSesiTutup = k.sesi === 'Tutup' || k.status_aktif === 'false';
-              const toggleChecked = isSesiTutup;
-              const colorSesi = isSesiTutup ? 'text-aksen' : 'text-footer2';
+              // ✅ LOGIKA SESI PERANGKAT
+              const sesiPerangkat = k.sesi_perangkat || k.sesi || 'Tutup';
+              
+              let toggleChecked = false;
+              let colorSesi = '';
+              let labelSesi = '';
+              let toggleColor = '';
+
+              if (sesiPerangkat === 'Buka') {
+                // Kasir sudah absen, siap melayani
+                toggleChecked = true; // Toggle ON
+                colorSesi = 'text-green-600';
+                labelSesi = 'BUKA';
+                toggleColor = 'bg-green-500';
+              } else if (sesiPerangkat === 'Sibuk') {
+                // Kasir sedang melayani transaksi
+                toggleChecked = false; // Toggle OFF
+                colorSesi = 'text-amber-600';
+                labelSesi = 'SIBUK';
+                toggleColor = 'bg-amber-500';
+              } else {
+                // Tutup (belum absen atau sudah pulang)
+                toggleChecked = false; // Toggle OFF
+                colorSesi = 'text-aksen';
+                labelSesi = 'TUTUP';
+                toggleColor = 'bg-aksen';
+              }
 
               return (
                 <div key={i} className="bg-white border border-footer2/20 rounded-2xl p-5 flex flex-col items-center shadow-sm hover:shadow-md transition relative group">
 
                   {/* Toggle Sesi POS */}
-                  <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-bgutama/80 backdrop-blur px-2 py-1 rounded-md border border-footer2/20" title="Status Sesi Kasir">                    
+                  <div className="absolute top-3 left-3 flex items-center gap-1.5 bg-bgutama/80 backdrop-blur px-2 py-1 rounded-md border border-footer2/20" title={`Status Sesi: ${labelSesi}`}>                    
                     <label className="relative inline-flex items-center cursor-pointer">
                       <input
                         type="checkbox"
@@ -344,8 +392,11 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
                         checked={toggleChecked}
                         onChange={(e) => handleToggleSesi(k.id_karyawan, k.nama_karyawan, e.target.checked)}
                       />
-                      <div className="w-7 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:bg-aksen"></div>
+                      <div className={`w-7 h-4 bg-gray-200 peer-focus:outline-none rounded-full peer peer-checked:after:translate-x-full peer-checked:after:border-white after:content-[''] after:absolute after:top-[2px] after:left-[2px] after:bg-white after:border-gray-300 after:border after:rounded-full after:h-3 after:w-3 after:transition-all peer-checked:${toggleColor}`}></div>
                     </label>
+                    <span className={`text-[8px] font-bold ${colorSesi}`}>
+                      {labelSesi}
+                    </span>
                   </div>
 
                   {/* Foto & Info */}
@@ -360,6 +411,11 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
                   <p className="text-xs text-footer2 font-semibold bg-bgutama px-3 py-1 rounded-full mt-1">
                     {k.id_karyawan} • {k.peran}
                   </p>
+                  <div className="mt-1">
+                    <span className={`text-[10px] font-bold px-2 py-0.5 rounded ${badgeColor}`}>
+                      {statusAktif}
+                    </span>
+                  </div>
 
                   {/* Tombol Aksi */}
                   <div className="flex gap-2 w-full mt-4 pt-4 border-t border-footer2/10">
@@ -383,8 +439,7 @@ export default function Karyawan({ onClose }: { onClose: () => void }) {
         </div>
       </main>
 
-
-      {/* MODAL FORM CRUD KARYAWAN — Sesuai Struktur Lampiran 1 */}
+      {/* MODAL FORM CRUD KARYAWAN */}
       {showModal && (
         <div className="fixed inset-0 z-[60] bg-black/40 backdrop-blur-sm flex items-end md:items-center justify-center">
           <div className="bg-white w-full md:w-[90%] md:max-w-md max-h-[90vh] overflow-y-auto rounded-t-3xl md:rounded-2xl shadow-2xl p-6 relative animate-[slideUp_0.3s_ease-out] md:animate-[scaleIn_0.2s_ease-out]">

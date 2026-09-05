@@ -12,6 +12,14 @@ const ToastNotif = Swal.mixin({
   color: 'var(--color-teksgelap)'
 });
 
+// Default safemode rules
+const DEFAULT_SAFEMODE_RULES = [
+  { id: '0', istilah: 'BPOM', status: true },
+  { id: '1', istilah: 'Non BPOM', status: true },
+  { id: '2', istilah: 'P-IRT', status: true },
+  { id: '3', istilah: 'SP', status: true }
+];
+
 // Types
 interface KasirData {
   id_karyawan: string;
@@ -37,6 +45,7 @@ interface ProdukData {
   qr: string;
   nama_barang: string;
   kategori?: string;
+  status_bpom?: string;
   jumlah_1?: number;
   jumlah_2?: number;
   jumlah_3?: number;
@@ -78,14 +87,62 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
   const [dataPelangganMaster, setDataPelangganMaster] = useState<PelangganData[]>([]);
   const [dataDompetMaster, setDataDompetMaster] = useState<DompetData[]>([]);
   const [katalogPos, setKatalogPos] = useState<ProdukData[]>([]);
+  const [semuaProduk, setSemuaProduk] = useState<ProdukData[]>([]); // SEMUA produk tanpa filter safemode
   const [pengaturan, setPengaturan] = useState<any>({});
   const [isKatalogReady, setIsKatalogReady] = useState(false);
   const [isLoadingProduk, setIsLoadingProduk] = useState(false);
+  
+  // State Safe Mode
+  const [isSafemode, setIsSafemode] = useState(false);
+  const [safemodeRules, setSafemodeRules] = useState(DEFAULT_SAFEMODE_RULES);
+  // Fungsi untuk toggle safemode dan simpan ke pengaturan
+  const toggleSafeMode = async () => {
+    try {
+      const newSafemodeState = !isSafemode;
+      
+      // Update state lokal
+      setIsSafemode(newSafemodeState);
+      
+      // Simpan ke pengaturan (API)
+      await fetch('/api/pengaturan', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          Safemode_Aktif: newSafemodeState ? 'true' : 'false' 
+        })
+      });
+      
+      // Toast halus untuk konfirmasi
+      ToastNotif.fire({ 
+        icon: 'info', 
+        title: newSafemodeState ? 'Mode Terbatas' : 'Mode Normal',
+        timer: 1000
+      });
+      
+      // Muat ulang katalog jika safemode diaktifkan
+      if (newSafemodeState) {
+        const produkTersaring = semuaProduk.filter(p => {
+          const rule = safemodeRules.find(r => r.id === p.status_bpom);
+          return rule ? rule.status : false;
+        });
+        setKatalogPos(produkTersaring);
+      } else {
+        setKatalogPos(semuaProduk);
+      }
+    } catch (err) {
+      console.error('Gagal toggle safemode:', err);
+      // Rollback jika gagal
+      setIsSafemode(prev => !prev);
+      ToastNotif.fire({ icon: 'error', title: 'Gagal mengubah mode' });
+    }
+  };
   
   // State Sesi & View
   const [isModalInisialisasi, setIsModalInisialisasi] = useState(true);
   const [isModalScanner, setIsModalScanner] = useState(false);
   const [currentKasir, setCurrentKasir] = useState<KasirData>({ id_karyawan: '', nama_karyawan: '' });
+  // State untuk melacak status sesi karyawan
+  const [statusSesiKaryawan, setStatusSesiKaryawan] = useState<Record<string, string>>({});
   const [currentPelanggan, setCurrentPelanggan] = useState<PelangganData>({ id_pelanggan: 'UMUM', nama: 'Pelanggan Umum', tipe: 'A' });
   
   const [isModeGrid, setIsModeGrid] = useState(false);
@@ -132,10 +189,247 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
   // State untuk accordion
   const [openAccordions, setOpenAccordions] = useState<Set<string>>(new Set());
 
-  useEffect(() => { 
+  // ============ SAFE MODE HELPERS ============
+  
+  // Validasi safemode rules
+  const validateSafemodeRules = (rules: any[]): typeof DEFAULT_SAFEMODE_RULES => {
+    if (!Array.isArray(rules)) return DEFAULT_SAFEMODE_RULES;
+    
+    const validRules = rules.filter(rule => 
+      rule && 
+      typeof rule.id === 'string' && 
+      rule.id.trim() !== '' &&
+      typeof rule.istilah === 'string' && 
+      rule.istilah.trim() !== '' &&
+      typeof rule.status === 'boolean'
+    ).map(rule => ({
+      id: rule.id.trim(),
+      istilah: rule.istilah.trim(),
+      status: rule.status
+    }));
+    
+    return validRules.length > 0 ? validRules : DEFAULT_SAFEMODE_RULES;
+  };
+
+  // Cek apakah produk boleh dijual (safe mode)
+  const isProdukSafe = useCallback((produk: ProdukData): boolean => {
+    if (!isSafemode) return true; // Safe mode tidak aktif
+    
+    if (!produk.status_bpom) return false; // Status tidak dikenal
+    
+    const rule = safemodeRules.find(r => r.id === produk.status_bpom);
+    return rule ? rule.status : false; // Harus ada rule dan status true
+  }, [isSafemode, safemodeRules]);
+
+  // Get label BPOM
+  const getBpomLabel = useCallback((statusBpom: string): string => {
+    const rule = safemodeRules.find(r => r.id === statusBpom);
+    return rule ? rule.istilah : 'Tidak Diketahui';
+  }, [safemodeRules]);
+
+  // Cek apakah produk terlarang (untuk warning)
+  const cekProdukTerlarang = useCallback((barcodeVal: string): { terlarang: boolean; produk?: ProdukData; alasan?: string } => {
+    if (!isSafemode) return { terlarang: false };
+    
+    // Cari di SEMUA produk (bukan hanya katalog tersaring)
+    const lowerVal = String(barcodeVal).toLowerCase().trim();
+    const produkAsli = semuaProduk.find(p => 
+      String(p.qr || '').toLowerCase().trim() === lowerVal || 
+      String(p.nama_barang || '').toLowerCase().trim() === lowerVal
+    );
+    
+    if (produkAsli) {
+      const rule = safemodeRules.find(r => r.id === produkAsli.status_bpom);
+      
+      if (!rule) {
+        return {
+          terlarang: true,
+          produk: produkAsli,
+          alasan: `Produk "${produkAsli.nama_barang}" memiliki status BPOM yang tidak dikenal`
+        };
+      }
+      
+      if (!rule.status) {
+        return {
+          terlarang: true,
+          produk: produkAsli,
+          alasan: `Produk "${produkAsli.nama_barang}" dilarang dijual karena status "${rule.istilah}" dinonaktifkan oleh Safe Mode`
+        };
+      }
+    }
+    
+    return { terlarang: false };
+  }, [isSafemode, semuaProduk, safemodeRules]);
+
+  // Tampilkan warning produk terlarang
+  const tampilkanWarningTerlarang = (produk: ProdukData, alasan: string) => {
+    Swal.fire({
+      icon: 'error',
+      title: '⛔ AKSES DITOLAK',
+      html: `
+        <div class="text-left mt-3">
+          <p class="text-sm text-gray-600 mb-3">${alasan}</p>
+          <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+            <p class="text-xs font-bold text-red-700 mb-1">Detail Produk:</p>
+            <p class="text-sm font-bold">${produk.nama_barang}</p>
+            <p class="text-xs text-gray-500">Kode: ${produk.qr}</p>
+            <p class="text-xs text-gray-500">Status: ${getBpomLabel(produk.status_bpom || '')}</p>
+          </div>
+          <p class="text-xs text-gray-400 mt-3">Hubungi admin untuk mengaktifkan produk ini.</p>
+        </div>
+      `,
+      confirmButtonColor: '#E53E3E',
+      confirmButtonText: 'Mengerti'
+    });
+  };
+
+  // ============ LOAD DATA ============
+    useEffect(() => { 
     muatDataInisialisasi(); 
     setTimeout(() => refInputKasir.current?.focus(), 100);
   }, []);
+
+  const muatDataInisialisasi = async () => {
+    try {
+      const safeFetch = async (url: string) => {
+        try {
+          const res = await fetch(url);
+          if (!res.ok) return null;
+          const text = await res.text();
+          if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) return null;
+          return text ? JSON.parse(text) : null;
+        } catch (e) {
+          return null;
+        }
+      };
+
+      // Fungsi untuk mengambil semua produk
+      const fetchSemuaProduk = async (): Promise<any[]> => {
+        setIsLoadingProduk(true);
+        let semuaData: any[] = [];
+        
+        try {
+          let halaman = 1;
+          const limitAman = 500;
+          let masihAdaData = true;
+
+          while (masihAdaData && halaman <= 100) {
+            const res = await safeFetch(`/api/produk?limit=${limitAman}&page=${halaman}`);
+            
+            if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
+              semuaData = semuaData.concat(res.data);
+              
+              if (res.totalPages && halaman >= res.totalPages) {
+                masihAdaData = false;
+              } else if (res.data.length < (res.limit || limitAman)) {
+                masihAdaData = false;
+              } else {
+                halaman++;
+              }
+            } else {
+              masihAdaData = false;
+            }
+          }
+        } catch (error) {
+          console.error('Error fetching produk:', error);
+        } finally {
+          setIsLoadingProduk(false);
+        }
+        
+        return semuaData;
+      };
+
+      // Tarik master data secara paralel
+      const [resKaryawan, resPelanggan, resDompet, resPengaturan] = await Promise.all([
+        safeFetch('/api/karyawan'),
+        safeFetch('/api/pelanggan'),
+        safeFetch('/api/dompet'),
+        safeFetch('/api/pengaturan')
+      ]);
+      // Set Master Data
+      if (resKaryawan?.data) {
+        setDataKasirMaster(resKaryawan.data);
+        
+        // Buat map status sesi dari data karyawan
+        const sesiMap: Record<string, string> = {};
+        resKaryawan.data.forEach((k: any) => {
+          sesiMap[k.id_karyawan] = k.sesi_perangkat || k.sesi || 'Tutup'; // Default 'Tutup' jika tidak ada
+        });
+        setStatusSesiKaryawan(sesiMap);
+      }
+
+      // Set Master Data
+      if (resPelanggan?.data) setDataPelangganMaster(resPelanggan.data);
+      else if (Array.isArray(resPelanggan)) setDataPelangganMaster(resPelanggan);
+      if (resDompet?.data) setDataDompetMaster(resDompet.data);
+
+      // Pengaturan & SAFE MODE
+      if (resPengaturan?.data) {
+        const configDb = Array.isArray(resPengaturan.data) ? resPengaturan.data[0] : resPengaturan.data;
+        setPengaturan(configDb);
+        
+        // === SAFE MODE SETUP ===
+        const safemodeAktif = configDb.Safemode_Aktif === 'true' || 
+                               configDb.Safemode_Aktif === true ||
+                               String(configDb.Safemode_Aktif).toLowerCase() === 'true';
+        setIsSafemode(safemodeAktif);
+        
+        try {
+          const rules = configDb.Safemode_Rules 
+            ? validateSafemodeRules(JSON.parse(configDb.Safemode_Rules))
+            : DEFAULT_SAFEMODE_RULES;
+          setSafemodeRules(rules);
+        } catch (e) {
+          console.error('Error parsing safemode rules:', e);
+          setSafemodeRules(DEFAULT_SAFEMODE_RULES);
+        }
+        
+        // Tipe harga aktif
+        const tipeList = ['A','B','C','D','E','F','G','H','I'];
+        const firstActive = tipeList.find(t => 
+          configDb[`Label_Aktif_${t}`] === true || 
+          String(configDb[`Label_Aktif_${t}`]).toLowerCase() === 'true'
+        );
+        
+        if (firstActive && currentPelanggan.tipe === 'A') {
+          setTipeHargaAktif(firstActive);
+        }
+      } else {
+        setPengaturan({ 
+          Label_Aktif_A: 'true', 
+          Label_Aktif_B: 'true', 
+          Label_Aktif_C: 'true',
+          Label_Aktif_D: 'true',
+          Label_Aktif_E: 'true',
+          Label_Aktif_F: 'true',
+          Label_Aktif_G: 'true',
+          Label_Aktif_H: 'true',
+          Label_Aktif_I: 'true'
+        });
+      }
+
+      // Tarik dan Set Produk
+      const semuaProdukData = await fetchSemuaProduk();
+      if (semuaProdukData.length > 0) {
+        // Simpan SEMUA produk
+        setSemuaProduk(semuaProdukData);
+        
+        // Filter katalog berdasarkan safe mode
+        const produkTersaring = isSafemode 
+          ? semuaProdukData.filter(p => isProdukSafe(p))
+          : semuaProdukData;
+        
+        setKatalogPos(produkTersaring);
+        setIsKatalogReady(true);
+        console.log(`Berhasil memuat ${semuaProdukData.length} produk, ${produkTersaring.length} tersedia setelah filter safemode`);
+      } else {
+        console.warn('Tidak ada produk yang dimuat');
+      }
+
+    } catch(err) { 
+      console.error("Gagal fatal saat memuat data inisialisasi:", err); 
+    }
+  };
 
   // Keyboard shortcuts
   useEffect(() => {
@@ -169,11 +463,17 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         e.preventDefault();
         logoutKasir();
       }
+      
+      // === TOGGLE SAFE MODE: Ctrl + Shift + S ===
+      if (e.ctrlKey && e.shiftKey && e.key === 'S') {
+        e.preventDefault();
+        toggleSafeMode();
+      }
     };
     
     document.addEventListener('keydown', handleKeyDown);
     return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [isModalInisialisasi, isModalScanner, isModeGrid, keranjangPos, currentKasir, currentPelanggan]);
+  }, [isModalInisialisasi, isModalScanner, isModeGrid, keranjangPos, currentKasir, currentPelanggan, isSafemode, safemodeRules]);
 
   useEffect(() => {
     if (gridGroupMode === 'none' && !isLoadingProduk) {
@@ -184,141 +484,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
       });
     }
   }, [gridGroupMode, isLoadingProduk]);
-
-  const lewatiInisialisasi = () => {
-    setCurrentKasir({ 
-        id_karyawan: '', 
-        nama_karyawan: 'Belum Dipilih' 
-    });
-    
-    setCurrentPelanggan({ 
-        id_pelanggan: 'UMUM', 
-        nama: 'Pelanggan Umum', 
-        tipe: 'A' 
-    });
-    
-    setTipeHargaAktif('A');
-    setIsModalInisialisasi(false);
-    setTimeout(() => refBarcode.current?.focus(), 100);
-    
-    ToastNotif.fire({ 
-        icon: 'info', 
-        title: 'Mode Tanpa Kasir - Data Kasir Kosong' 
-    });
-  };
-
-  const muatDataInisialisasi = async () => {
-    try {
-      const safeFetch = async (url: string) => {
-        try {
-          const res = await fetch(url);
-          if (!res.ok) return null;
-          const text = await res.text();
-          if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) return null;
-          return text ? JSON.parse(text) : null;
-        } catch (e) {
-          return null;
-        }
-      };
-
-      // Fungsi untuk mengambil semua produk
-      const fetchSemuaProduk = async (): Promise<any[]> => {
-        setIsLoadingProduk(true);
-        let semuaData: any[] = [];
-        
-        try {
-          let halaman = 1;
-          const limitAman = 500; // Turunkan sedikit ke 500 agar server Supabase tidak menolak request yang terlalu besar
-          let masihAdaData = true;
-
-          while (masihAdaData && halaman <= 100) {
-            const res = await safeFetch(`/api/produk?limit=${limitAman}&page=${halaman}`);
-            
-            if (res?.data && Array.isArray(res.data) && res.data.length > 0) {
-              semuaData = semuaData.concat(res.data);
-              
-              // Logika pengecekan yang lebih tangguh:
-              // Berhenti jika halaman saat ini >= total halaman dari server
-              if (res.totalPages && halaman >= res.totalPages) {
-                masihAdaData = false;
-              } 
-              // Berhenti jika data yang diterima kurang dari limit server
-              else if (res.data.length < (res.limit || limitAman)) {
-                masihAdaData = false;
-              } 
-              // Lanjut ke halaman berikutnya
-              else {
-                halaman++;
-              }
-            } else {
-              masihAdaData = false;
-            }
-          }
-        } catch (error) {
-          console.error('Error fetching produk:', error);
-        } finally {
-          setIsLoadingProduk(false);
-        }
-        
-        return semuaData;
-      };
-
-      // Tarik master data secara paralel
-      const [resKaryawan, resPelanggan, resDompet, resPengaturan] = await Promise.all([
-        safeFetch('/api/karyawan'),
-        safeFetch('/api/pelanggan'),
-        safeFetch('/api/dompet'),
-        safeFetch('/api/pengaturan')
-      ]);
-
-      // Set Master Data
-      if (resKaryawan?.data) setDataKasirMaster(resKaryawan.data);
-      if (resPelanggan?.data) setDataPelangganMaster(resPelanggan.data);
-      else if (Array.isArray(resPelanggan)) setDataPelangganMaster(resPelanggan);
-      if (resDompet?.data) setDataDompetMaster(resDompet.data);
-
-      // Pengaturan
-      if (resPengaturan?.data) {
-        const configDb = Array.isArray(resPengaturan.data) ? resPengaturan.data[0] : resPengaturan.data;
-        setPengaturan(configDb);
-        
-        const tipeList = ['A','B','C','D','E','F','G','H','I'];
-        const firstActive = tipeList.find(t => 
-          configDb[`Label_Aktif_${t}`] === true || 
-          String(configDb[`Label_Aktif_${t}`]).toLowerCase() === 'true'
-        );
-        
-        if (firstActive && currentPelanggan.tipe === 'A') {
-          setTipeHargaAktif(firstActive);
-        }
-      } else {
-        setPengaturan({ 
-          Label_Aktif_A: 'true', 
-          Label_Aktif_B: 'true', 
-          Label_Aktif_C: 'true',
-          Label_Aktif_D: 'true',
-          Label_Aktif_E: 'true',
-          Label_Aktif_F: 'true',
-          Label_Aktif_G: 'true',
-          Label_Aktif_H: 'true',
-          Label_Aktif_I: 'true'
-        });
-      }
-
-      // Tarik dan Set Produk
-      const semuaProduk = await fetchSemuaProduk();
-      if (semuaProduk.length > 0) {
-        setKatalogPos(semuaProduk);
-        setIsKatalogReady(true);
-        console.log(`Berhasil memuat ${semuaProduk.length} produk`);
-      } else {
-        console.warn('Tidak ada produk yang dimuat');
-      }
-
-    } catch(err) { 
-      console.error("Gagal fatal saat memuat data inisialisasi:", err); 
-    }
-  };
 
   // ============ MODAL SESI & SCANNER ============
   const simpanSesiDanMulai = () => {
@@ -334,8 +499,40 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
       ToastNotif.fire({ icon: 'error', title: 'ID Kasir Tidak Valid!' });
       return;
     }
+
+    // === CEK APAKAH KASIR SEDANG SIBUK ===
+    const sesiSaatIni = statusSesiKaryawan[idK] || 'Tutup';
+    if (sesiSaatIni !== 'Buka') {
+      Swal.fire({
+        icon: 'error',
+        title: 'Tidak Bisa Login!',
+        text: `${objKasir.nama_karyawan} belum absen atau sudah tutup shift.`,
+        confirmButtonColor: '#E53E3E',
+        confirmButtonText: 'Mengerti'
+      });
+      return;
+    }
+
+    // Set status Sibuk
+    fetch('/api/karyawan/status-sesi', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        id: objKasir.id_karyawan, 
+        status: 'Sibuk' 
+      })
+    });
     
     setCurrentKasir({ id_karyawan: objKasir.id_karyawan, nama_karyawan: objKasir.nama_karyawan });
+    // === SET STATUS SESI KASIR MENJADI SIBUK ===
+    fetch('/api/karyawan/status-sesi', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ 
+        id: objKasir.id_karyawan, 
+        status: 'Sibuk' 
+      })
+    }).catch(err => console.error('Gagal update status sesi:', err));
 
     const valPel = inputPelangganWajib.trim() || 'UMUM - Pelanggan Umum';
     const idP = valPel.split(' - ')[0].trim();
@@ -362,21 +559,42 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     ToastNotif.fire({ icon: 'success', title: 'Sesi Dimulai!' });
   };
 
-// Fungsi Pengganti Logout Kasir / Akhiri Transaksi
+  const lewatiInisialisasi = () => {
+    setCurrentKasir({ 
+        id_karyawan: '', 
+        nama_karyawan: 'Belum Dipilih' 
+    });
+    
+    setCurrentPelanggan({ 
+        id_pelanggan: 'UMUM', 
+        nama: 'Pelanggan Umum', 
+        tipe: 'A' 
+    });
+    
+    setTipeHargaAktif('A');
+    setIsModalInisialisasi(false);
+    setTimeout(() => refBarcode.current?.focus(), 100);
+    
+    ToastNotif.fire({ 
+        icon: 'info', 
+        title: 'Mode Tanpa Kasir - Data Kasir Kosong' 
+    });
+  };
+
+  // Fungsi Pengganti Logout Kasir / Akhiri Transaksi
   const prosesResetSesi = (isDariPembayaran = false) => {
     if (dataTunda) {
-      // Skenario A: Ada Transaksi Tunda
       Swal.fire({
         title: isDariPembayaran ? 'Transaksi Selesai' : 'Ada Transaksi Tunda!',
         text: 'Masih ada transaksi yang ditunda. Pilih tindakan selanjutnya:',
         icon: 'info',
         showDenyButton: true,
-        showCancelButton: !isDariPembayaran, // Sembunyikan tombol batal jika dipanggil dari pembayaran sukses
+        showCancelButton: !isDariPembayaran,
         confirmButtonText: 'Panggil Tunda',
         denyButtonText: 'Transaksi Baru',
         cancelButtonText: 'Batal',
-        confirmButtonColor: '#3B82F6', // Warna Biru
-        denyButtonColor: '#10B981'     // Warna Hijau
+        confirmButtonColor: '#3B82F6',
+        denyButtonColor: '#10B981'
       }).then((result) => {
         if (result.isConfirmed) {
           panggilDataTunda();
@@ -385,7 +603,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         }
       });
     } else {
-      // Skenario B: Tidak ada Transaksi Tunda
       if (isDariPembayaran) {
         resetKeInisialisasiAwal();
       } else {
@@ -404,7 +621,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     }
   };
 
-  // Bungkus ulang untuk header & shortcut F10
   const logoutKasir = () => prosesResetSesi(false);
 
   const bukaScanner = () => {
@@ -416,6 +632,17 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         { fps: 10, qrbox: { width: 250, height: 250 } },
         (decodedText) => {
           tutupScanner();
+          
+          // === SAFE MODE CHECK ===
+          const cekTerlarang = cekProdukTerlarang(decodedText);
+          if (cekTerlarang.terlarang && cekTerlarang.produk) {
+            tampilkanWarningTerlarang(cekTerlarang.produk, cekTerlarang.alasan || '');
+            if (!isModeGrid) {
+              refBarcode.current?.focus();
+            }
+            return;
+          }
+          
           if (!isModeGrid) {
             setStgForm(prev => ({...prev, barcode: decodedText}));
             setTimeout(() => navigasiStaging({ key: 'Enter' } as any, 'barcode', decodedText), 100);
@@ -442,11 +669,19 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
   const findProduk = useCallback((val: string | number) => {
     if (!val) return null; 
     const lowerVal = String(val).toLowerCase().trim();
-    return katalogPos.find(p => 
+    
+    const produk = katalogPos.find(p => 
       String(p.qr || '').toLowerCase().trim() === lowerVal || 
       String(p.nama_barang || '').toLowerCase().trim() === lowerVal
     );
-  }, [katalogPos]);
+    
+    // === SAFE MODE CHECK (double validation) ===
+    if (produk && !isProdukSafe(produk)) {
+      return null;
+    }
+    
+    return produk;
+  }, [katalogPos, isProdukSafe]);
 
   const getHargaByTipe = useCallback((p: any, tipe: string) => {
     if (!p) return 0;
@@ -493,6 +728,16 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
 
       if (field === 'barcode') {
         const barcodeVal = overrideBarcode || refBarcode.current?.value || stgForm.barcode;
+        
+        // === SAFE MODE CHECK ===
+        const cekTerlarang = cekProdukTerlarang(barcodeVal);
+        if (cekTerlarang.terlarang && cekTerlarang.produk) {
+          tampilkanWarningTerlarang(cekTerlarang.produk, cekTerlarang.alasan || '');
+          setStgForm(prev => ({ ...prev, barcode: '' }));
+          refBarcode.current?.focus();
+          return;
+        }
+        
         const p = findProduk(barcodeVal);
         
         if (p) {
@@ -630,6 +875,12 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
       return;
     }
     
+    // === SAFE MODE CHECK (triple validation) ===
+    if (!isProdukSafe(p)) {
+      tampilkanWarningTerlarang(p, `Produk "${p.nama_barang}" dilarang dijual`);
+      return;
+    }
+    
     let finalQty = Number(stgForm.qty);
     let finalHarga = Number(stgForm.harga);
     
@@ -678,6 +929,13 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
   const tambahDariGrid = (qr: string) => {
     if (!isKatalogReady) {
       ToastNotif.fire({ icon: 'info', title: 'Data barang sedang dimuat...' });
+      return;
+    }
+    
+    // === SAFE MODE CHECK ===
+    const cekTerlarang = cekProdukTerlarang(qr);
+    if (cekTerlarang.terlarang && cekTerlarang.produk) {
+      tampilkanWarningTerlarang(cekTerlarang.produk, cekTerlarang.alasan || '');
       return;
     }
     
@@ -812,8 +1070,8 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
         pelangganId: currentPelanggan.id_pelanggan,
         pelangganNama: currentPelanggan.nama,
         tipeHarga: tipeHargaAktif,
-        kasirId: currentKasir.id_karyawan,      // <-- SIMPAN KASIR
-        kasirNama: currentKasir.nama_karyawan   // <-- SIMPAN KASIR
+        kasirId: currentKasir.id_karyawan,
+        kasirNama: currentKasir.nama_karyawan
       });
       
       // Kosongkan layar
@@ -843,8 +1101,20 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
       ToastNotif.fire({ icon: 'info', title: 'Keranjang Kosong!' });
     }
   };
+
   // Fungsi Inti untuk Membersihkan Sesi ke Awal
   const resetKeInisialisasiAwal = () => {
+    // === SET STATUS SESI KASIR MENJADI BEBAS ===
+    if (currentKasir.id_karyawan) {
+      fetch('/api/karyawan/status-sesi', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ 
+          id: currentKasir.id_karyawan, 
+          status: 'Buka' 
+        })
+      }).catch(err => console.error('Gagal reset status sesi:', err));
+    }
     setKeranjangPos([]);
     setInputKasirWajib('');
     setInputPelangganWajib('');
@@ -864,13 +1134,39 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
       return;
     }
     
+    // === SAFE MODE CHECK SEBELUM BAYAR ===
+    if (isSafemode) {
+      const produkTerlarangDiKeranjang = keranjangPos.filter(item => {
+        const produk = semuaProduk.find(p => p.qr === item.qr);
+        return produk && !isProdukSafe(produk);
+      });
+      
+      if (produkTerlarangDiKeranjang.length > 0) {
+        const namaProduk = produkTerlarangDiKeranjang.map(i => i.nama).join(', ');
+        Swal.fire({
+          icon: 'error',
+          title: '⛔ PRODUK TERLARANG DI KERANJANG',
+          html: `
+            <div class="text-left mt-3">
+              <p class="text-sm text-gray-600 mb-3">Produk berikut tidak dapat dijual karena Safe Mode aktif:</p>
+              <div class="bg-red-50 border border-red-200 rounded-lg p-3">
+                <p class="text-sm font-bold">${namaProduk}</p>
+              </div>
+              <p class="text-xs text-gray-400 mt-3">Hapus produk tersebut dari keranjang untuk melanjutkan.</p>
+            </div>
+          `,
+          confirmButtonColor: '#E53E3E',
+          confirmButtonText: 'Mengerti'
+        });
+        return;
+      }
+    }
+    
     const isRefund = totalBelanjaPos < 0;
     const absoluteTotal = Math.abs(totalBelanjaPos);
 
-    // Di dalam fungsi bukaModalBayar
     let htmlDompet = `<option value="">-- Pilih Dompet --</option>` + 
       dataDompetMaster.map(d => {
-        // Cek apakah ID dompet ini sama dengan default_dompet di pengaturan
         const isSelected = d.id_dompet === pengaturan?.default_dompet ? 'selected' : '';
         return `<option value="${d.id_dompet}" ${isSelected}>${d.nama_dompet} (Rp ${Number(d.saldo_aktif || 0).toLocaleString('id-ID')})</option>`;
       }).join('');
@@ -1072,7 +1368,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
              );
            }
            setKeranjangPos([]);
-           // setDataTunda(null);
            muatDataInisialisasi();
            prosesResetSesi(true);
          });
@@ -1141,29 +1436,23 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
     htmlContent += `<div class="center bold" style="margin-top: 6px; font-size: 12px;">${judulStruk}</div>`;
     htmlContent += '<div class="border-dashed"></div>';
     
-    // Logika 4 Pilihan Metadata
     const renderMeta = (id: string, defaultLabel: string, value: string | number) => {
         const mode = pengaturan[`Struk_Mode_${id}`] || 'show';
         const valueText = String(value);
 
-        // 1. Jika disembunyikan
         if (mode === 'hide') return '';
 
-        // 2. Jika HANYA menampilkan value tanpa label
         if (mode === 'value_only') {
             return `<div class="meta-row"><div>${valueText}</div></div>`;
         }
 
-        // 3. Logika untuk mode Tampilkan & Custom
         const lbl = mode === 'custom' ? (pengaturan[`Struk_Label_${id}`] ?? defaultLabel) : defaultLabel;
         const width = mode === 'custom' ? (pengaturan[`Struk_Width_${id}`] || '35%') : '35%';
 
-        // Antisipasi: jika mode custom dipilih tapi input label sengaja dikosongkan spasi saja
         if (lbl.trim() === '') {
             return `<div class="meta-row"><div>${valueText}</div></div>`;
         }
 
-        // Tampilan normal dengan label & titik dua (: )
         return `<div class="meta-row"><div style="width: ${width}; flex-shrink: 0;">${lbl}</div><div>: ${valueText}</div></div>`;
     };
 
@@ -1258,6 +1547,15 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
   return (
     <div className="h-full flex flex-col bg-bgutama relative overflow-hidden animate-[fadeIn_0.3s_ease-in-out]">
       
+      {/* INDIKATOR SAFE MODE - Menyatu dengan header */}
+      {isSafemode && (
+      <div className="bg-header1 text-white/60 text-center py-1 px-2 text-[10px] font-medium z-[65] flex gap-1.5 border-b border-white/10">
+        <svg className="w-3 h-3 text-white/50" fill="currentColor" viewBox="0 0 20 20">
+          <path fillRule="evenodd" d="M5 9V7a5 5 0 0110 0v2a2 2 0 012 2v5a2 2 0 01-2 2H5a2 2 0 01-2-2v-5a2 2 0 012-2zm8-2v2H7V7a3 3 0 016 0z" clipRule="evenodd"></path>
+        </svg>
+      </div>
+    )}
+
       {/* MODAL INISIALISASI */}
       {isModalInisialisasi && (
         <div className="absolute inset-0 z-[70] bg-black/50 backdrop-blur-sm flex items-center justify-center p-4">
@@ -1301,9 +1599,15 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                   )}
                 </div>
                 <datalist id="list-kasir">
-                  {dataKasirMaster.map(k => (
-                    <option key={k.id_karyawan} value={`${k.id_karyawan} - ${k.nama_karyawan}`} />
-                  ))}
+                  {dataKasirMaster
+                    .filter(k => {
+                      const sesi = statusSesiKaryawan[k.id_karyawan] || 'Tutup';
+                      // Hanya tampilkan kasir yang sudah absen (BUKA)
+                      return sesi === 'Buka';
+                    })
+                    .map(k => (
+                      <option key={k.id_karyawan} value={`${k.id_karyawan} - ${k.nama_karyawan}`} />
+                    ))}
                 </datalist>
               </div>
               
@@ -1512,9 +1816,13 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                       )}
                     </div>
                     <datalist id="list-katalog">
-                      {katalogPos.map(p => (
-                        <option key={p.qr} value={p.qr}>{p.nama_barang}</option>
-                      ))}
+                      {katalogPos
+                        .filter(p => isProdukSafe(p)) // DOUBLE FILTER - pastikan hanya produk aman
+                        .map(p => (
+                          <option key={p.qr} value={p.qr}>
+                            {p.nama_barang} {isSafemode ? `[${getBpomLabel(p.status_bpom || '')}]` : ''}
+                          </option>
+                        ))}
                     </datalist>
                     <button 
                       onClick={bukaScanner}
@@ -1810,7 +2118,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                   {/* TAMPILAN SEMUA PRODUK */}
                   {gridGroupMode === 'none' && !isLoadingProduk && (
                     <div>
-                      {/* Header dengan badge "Semua" */}
                       <div className="mb-3 bg-bgutama/50 rounded-xl p-3 flex items-center justify-between">
                         <div className="flex items-center gap-2">
                           <span className="bg-header1 text-white px-3 py-1.5 rounded-lg text-xs font-black uppercase tracking-wide">
@@ -1825,7 +2132,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                           </span>
                         </div>
                         
-                        {/* Toggle Expand/Collapse */}
                         <button
                           onClick={() => toggleAccordion('semua')}
                           className="p-2 rounded-lg border border-footer2/30 bg-white hover:bg-bgutama transition"
@@ -1842,7 +2148,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                         </button>
                       </div>
                       
-                      {/* Konten Grid */}
                       {openAccordions.has('semua') && (
                         <div className={viewModeGrid === 'grid' ? 'grid grid-cols-2 lg:grid-cols-3 gap-2' : 'flex flex-col gap-2'}>
                           {katalogPos
@@ -1927,7 +2232,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                         
                         return (
                           <div key={kategori} className="bg-bgutama/30 rounded-xl overflow-hidden">
-                            {/* Header Kategori dengan Accordion */}
                             <button 
                               onClick={() => toggleAccordion(kategoriId)}
                               className="w-full p-3 flex items-center justify-between hover:bg-bgutama/50 transition"
@@ -1951,7 +2255,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                               </svg>
                             </button>
                             
-                            {/* Konten Kategori */}
                             {openAccordions.has(kategoriId) && (
                               <div className="p-3">
                                 <div className={viewModeGrid === 'grid' ? 'grid grid-cols-2 lg:grid-cols-3 gap-2' : 'flex flex-col gap-2'}>
@@ -2015,10 +2318,9 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                     </div>
                   )}
                   
-                  {/* TAMPILAN ABJAD - Kartu Alfabet Grid */}
+                  {/* TAMPILAN ABJAD */}
                   {gridGroupMode === 'abjad' && !isLoadingProduk && (
                     <div>
-                      {/* Grid Kartu Alfabet */}
                       <div className="grid grid-cols-6 md:grid-cols-9 lg:grid-cols-13 gap-1.5 mb-4">
                         {Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ').map(huruf => {
                           const jumlahProduk = katalogPos.filter(p => 
@@ -2055,7 +2357,6 @@ export default function Kasir({ onClose }: { onClose: () => void }) {
                         })}
                       </div>
                       
-                      {/* Konten Produk per Huruf */}
                       <div className="flex flex-col gap-3">
                         {Array.from('ABCDEFGHIJKLMNOPQRSTUVWXYZ').map(huruf => {
                           const produkDenganHuruf = katalogPos.filter(p => 

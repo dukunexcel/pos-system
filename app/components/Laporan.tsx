@@ -17,6 +17,7 @@ interface JurnalKeuanganProps {
 interface DompetData {
   id_dompet: string;
   nama_dompet: string;
+  saldo_aktif?: number;
   saldo?: number;
 }
 
@@ -31,6 +32,7 @@ interface JurnalItem {
   akunSumber: string;
   akunTujuan: string;
   referensi: string;
+  sumber?: string; // Tambahan untuk debugging
 }
 
 // DEFAULT PENGATURAN
@@ -43,17 +45,7 @@ const DEFAULT_PENGATURAN = {
   Label_Aktif_F: 'true',
   Label_Aktif_G: 'true',
   Label_Aktif_H: 'true',
-  Label_Aktif_I: 'true',
-  Struk_Kertas: '80mm',
-  Struk_FontSize: '12px',
-  Struk_ShowID: 'true',
-  Struk_ShowWaktu: 'true',
-  Struk_ShowKasir: 'true',
-  Struk_ShowPlg: 'true',
-  Struk_Label_ID: 'No. TRX:',
-  Struk_Label_Waktu: 'Waktu:',
-  Struk_Label_Kasir: 'Kasir:',
-  Struk_Label_Plg: 'Pelanggan:'
+  Label_Aktif_I: 'true'
 };
 
 // HELPER: Fungsi robust untuk membaca sandi dari pengaturan
@@ -63,7 +55,6 @@ const getSandiLabel = (peng: any, char: string) => {
   const charUpper = char.toUpperCase();
   const charLower = char.toLowerCase();
   
-  // Cek berbagai kemungkinan format
   const possibilities = [
     `Sandi_${charUpper}`,
     `sandi_${charLower}`,
@@ -99,6 +90,11 @@ const formatWaktu = (iso: string) => {
   });
 };
 
+// Style constants
+const inputClass = "w-full p-2.5 rounded-lg border border-footer2/40 bg-bgutama text-sm font-bold text-teksgelap focus:outline-none focus:border-header1 transition-all";
+const labelClass = "text-xs font-bold text-footer1 block mb-1.5";
+const labelRequiredClass = "text-xs font-bold text-header1 block mb-1.5";
+
 export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: JurnalKeuanganProps) {
   // State Data
   const [dataJurnal, setDataJurnal] = useState<JurnalItem[]>([]);
@@ -118,7 +114,7 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
   // State Modal Form
   const [showFormModal, setShowFormModal] = useState(false);
   const [formData, setFormData] = useState({
-    tipe: 'Pemasukan', 
+    tipe: 'Mutasi', 
     waktu: '', 
     kategori: '', 
     sandi: '', 
@@ -130,21 +126,8 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
   });
   const [saving, setSaving] = useState(false);
 
-  // HELPER: Fungsi untuk mendapatkan label dengan fallback
-  const getLabel = useCallback((val: any, defaultLabel: string) => {
-    if (val === undefined || val === null || val === '') return defaultLabel;
-    return val;
-  }, []);
-
-  // HELPER: Cek boolean dari pengaturan
-  const isTrue = useCallback((val: any) => {
-    return val === true || val === 'true' || val === 'TRUE' || val === 1 || val === '1';
-  }, []);
-
-  // Load pengaturan secara terpisah
   const loadPengaturan = useCallback(async () => {
     try {
-      console.log('🔄 Loading pengaturan...');
       const res = await fetch('/api/pengaturan');
       
       if (!res.ok) {
@@ -154,39 +137,29 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
       
       const text = await res.text();
       
-      // Cek jika response adalah HTML (error page)
       if (text.startsWith('<!DOCTYPE') || text.startsWith('<html')) {
         console.warn('⚠️ Response HTML bukan JSON');
         return;
       }
       
       const data = JSON.parse(text);
-      console.log('📦 Data pengaturan dari API:', data);
       
       if (data.data) {
         const configDb = Array.isArray(data.data) ? data.data[0] : data.data;
-        console.log('✅ Config DB:', configDb);
         setPengaturan(configDb);
       } else if (data.config) {
-        console.log('✅ Config:', data.config);
         setPengaturan(data.config);
       } else if (typeof data === 'object' && data !== null) {
-        console.log('✅ Data langsung:', data);
         setPengaturan(data);
-      } else {
-        console.warn('⚠️ Format data tidak dikenali');
       }
     } catch (err) {
       console.error('❌ Error parsing pengaturan:', err);
     }
   }, []);
 
-  // Load data jurnal dan dompet
   const loadData = useCallback(async () => {
     setLoading(true);
     try {
-      console.log('🔄 Loading data jurnal & dompet...');
-      
       const [resJurnal, resDompet] = await Promise.all([
         fetch('/api/jurnal'),
         fetch('/api/dompet')
@@ -198,7 +171,26 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
         if (!textJurnal.startsWith('<')) {
           const parsed = JSON.parse(textJurnal);
           if (parsed.data) {
-            console.log('✅ Jurnal loaded:', parsed.data.length, 'items');
+            console.log('📊 Data jurnal diterima:', parsed.data.length, 'items');
+            
+            // Debug: Cek sandi yang ada
+            const sandiList = parsed.data.map((j: any) => j.sandi);
+            const uniqueSandi = [...new Set(sandiList)];
+            console.log('🔍 Sandi yang ada:', uniqueSandi);
+            
+            // Debug: Cek sandi B dan F
+            const sandiB = parsed.data.filter((j: any) => j.sandi === 'B');
+            const sandiF = parsed.data.filter((j: any) => j.sandi === 'F');
+            console.log('🔍 Sandi B:', sandiB.length, 'items');
+            console.log('🔍 Sandi F:', sandiF.length, 'items');
+            
+            if (sandiB.length > 0) {
+              console.log('📋 Contoh Sandi B:', sandiB[0]);
+            }
+            if (sandiF.length > 0) {
+              console.log('📋 Contoh Sandi F:', sandiF[0]);
+            }
+            
             setDataJurnal(parsed.data);
           }
         }
@@ -210,7 +202,6 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
         if (!textDompet.startsWith('<')) {
           const parsedDompet = JSON.parse(textDompet);
           if (parsedDompet.data) {
-            console.log('✅ Dompet loaded:', parsedDompet.data.length, 'items');
             setDataDompet(parsedDompet.data);
           }
         }
@@ -223,32 +214,26 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
     }
   }, []);
 
-  // Effect untuk initial load
   useEffect(() => {
-    console.log('🚀 Component mounted');
     loadData();
     
-    // Selalu load pengaturan jika tidak ada dari props
     if (!pengaturanProp || Object.keys(pengaturanProp).length === 0) {
       loadPengaturan();
     } else {
-      console.log('📋 Menggunakan pengaturan dari props');
       setPengaturan(pengaturanProp);
     }
   }, [loadData, loadPengaturan, pengaturanProp]);
 
-  // Debug effect untuk memantau pengaturan
+  // Debug: Log saat dataJurnal berubah
   useEffect(() => {
-    console.log('📊 Pengaturan updated:', {
-      Struk_Kertas: pengaturan?.Struk_Kertas,
-      Struk_FontSize: pengaturan?.Struk_FontSize,
-      Struk_ShowID: pengaturan?.Struk_ShowID,
-      Struk_Label_ID: pengaturan?.Struk_Label_ID,
-      Struk_H1: pengaturan?.Struk_H1,
-      Struk_H2: pengaturan?.Struk_H2,
-      Struk_F1: pengaturan?.Struk_F1
-    });
-  }, [pengaturan]);
+    if (dataJurnal.length > 0) {
+      const sandiB = dataJurnal.filter(j => j.sandi === 'B');
+      const sandiF = dataJurnal.filter(j => j.sandi === 'F');
+      console.log('📊 State dataJurnal:', dataJurnal.length, 'items');
+      console.log('🔍 State Sandi B:', sandiB.length, 'items');
+      console.log('🔍 State Sandi F:', sandiF.length, 'items');
+    }
+  }, [dataJurnal]);
 
   // --- LOGIKA GROUPING SANDI ---
   const groupedSandi = useMemo(() => {
@@ -259,7 +244,7 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
 
     const alfabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("");
     
-    // Inisialisasi semua sandi yang aktif di pengaturan
+    // Inisialisasi SEMUA sandi yang aktif di pengaturan
     alfabet.forEach(char => {
       const labelTeks = getSandiLabel(pengaturan, char);
       if (labelTeks && String(labelTeks).trim() !== '') {
@@ -299,6 +284,9 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
         const firstChar = sandiVal.charAt(0);
         if (alfabet.includes(firstChar) && groups[firstChar]) {
           matchedKey = firstChar;
+        } else if (alfabet.includes(firstChar)) {
+          // Sandi ada tapi tidak terdefinisi di pengaturan
+          matchedKey = 'NONE';
         }
       }
 
@@ -313,7 +301,6 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
         groups[matchedKey].total += Number(j.nominal); 
         groups[matchedKey].count++;
       } else {
-        // Jika sandi tidak dikenali, masukkan ke NONE
         groups['NONE'].items.push(j);
         groups['NONE'].total += Number(j.nominal);
         groups['NONE'].count++;
@@ -354,13 +341,27 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
     setFormData(prev => ({ 
       ...prev, 
       tipe,
-      kategori: tipe === 'Mutasi' ? 'Pindah Buku' : prev.kategori 
+      kategori: tipe === 'Mutasi' ? 'Pindah Buku' : '' 
     }));
+  };
+
+  const handleSandiChange = (sandi: string) => {
+    const match = sandi.match(/^([A-Za-z])/);
+    if (match) {
+      const labelSandi = getSandiLabel(pengaturan, match[1]);
+      setFormData(prev => ({
+        ...prev,
+        sandi: match[1].toUpperCase(),
+        kategori: labelSandi || prev.kategori
+      }));
+    } else {
+      setFormData(prev => ({ ...prev, sandi: sandi.toUpperCase() }));
+    }
   };
 
   const bukaFormJurnal = () => {
     setFormData({ 
-      tipe: 'Pemasukan', 
+      tipe: 'Mutasi', 
       waktu: '', 
       kategori: '', 
       sandi: '', 
@@ -380,17 +381,23 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
     setSaving(true);
     
     try {
+      if (!formData.sandi.trim()) {
+        throw new Error('Sandi wajib diisi!');
+      }
+      if (!formData.nominal || Number(formData.nominal) <= 0) {
+        throw new Error('Nominal wajib diisi dan harus lebih dari 0!');
+      }
+
       let payload: any = {
         tipe: formData.tipe,
         waktu: formData.waktu || new Date().toISOString(),
-        kategori: formData.kategori.trim(),
+        kategori: formData.kategori.trim() || 'Umum',
         sandi: formData.sandi.trim(),
-        keterangan: formData.keterangan.trim(),
+        keterangan: formData.keterangan.trim() || `Transaksi ${formData.tipe}`,
         nominal: Number(formData.nominal),
-        referensi: formData.referensi.trim()
+        referensi: formData.referensi.trim() || `TRX-${Date.now().toString().slice(-6)}`
       };
 
-      // Validasi dan set akun berdasarkan tipe
       if (formData.tipe === 'Pemasukan') {
         if (!formData.akunTujuan) throw new Error('Pilih dompet tujuan untuk pemasukan!');
         payload.akunSumber = '';
@@ -410,9 +417,16 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
         }
         payload.akunSumber = sumber;
         payload.akunTujuan = tujuan;
+        
+        const dompetSumber = dataDompet.find(d => d.id_dompet === sumber);
+        if (dompetSumber) {
+          const saldoTersedia = Number(dompetSumber.saldo_aktif || dompetSumber.saldo || 0);
+          if (payload.nominal > saldoTersedia) {
+            throw new Error('Nominal melebihi saldo tersedia di dompet sumber!');
+          }
+        }
       }
 
-      // Kirim ke server
       const res = await fetch('/api/jurnal', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -437,7 +451,6 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
     }
   };
 
-  // --- HANDLER FILTER ---
   const terapkanFilterWaktu = () => {
     setActiveJurStart(filterRange.start || null);
     setActiveJurEnd(filterRange.end || null);
@@ -451,7 +464,6 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
     setShowFilterModal(false);
   };
 
-  // Render icon berdasarkan tipe transaksi
   const renderTipeIcon = (tipe: string) => {
     if (tipe === 'Pemasukan') {
       return (
@@ -473,7 +485,6 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
     );
   };
 
-  // Render badge sandi
   const renderSandiBadge = (sandi: string) => {
     if (!sandi) return null;
     
@@ -490,6 +501,7 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
 
   return (
     <div className="h-full flex flex-col bg-bgutama animate-[fadeIn_0.3s_ease-in-out] relative">
+      
       {/* HEADER */}
       <header className="bg-white px-4 md:px-8 py-4 flex justify-between items-center shadow-sm sticky top-0 z-10 border-b border-footer2/20 shrink-0">
         <div className="flex items-center gap-3">
@@ -814,6 +826,9 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
                           <td className="p-3 align-top">
                             <div className="font-bold text-teksgelap text-sm">{j.kategori}</div>
                             {renderSandiBadge(j.sandi)}
+                            {j.sumber && (
+                              <span className="text-[8px] text-footer2/50 ml-1">({j.sumber})</span>
+                            )}
                           </td>
                           <td className="p-3 text-teksgelap text-xs max-w-[200px] align-top whitespace-normal">
                             <div className="line-clamp-2" title={j.keterangan}>{j.keterangan}</div>
@@ -841,25 +856,25 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
             </h3>
             <div className="space-y-4">
               <div>
-                <label className="text-xs font-bold text-footer2 block mb-1">
+                <label className={labelClass}>
                   Mulai Dari (Tanggal & Jam)
                 </label>
                 <input 
                   type="datetime-local" 
                   value={filterRange.start}
                   onChange={(e) => setFilterRange({...filterRange, start: e.target.value})}
-                  className="w-full p-2.5 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                  className={inputClass}
                 />
               </div>
               <div>
-                <label className="text-xs font-bold text-footer2 block mb-1">
+                <label className={labelClass}>
                   Sampai Dengan
                 </label>
                 <input 
                   type="datetime-local" 
                   value={filterRange.end}
                   onChange={(e) => setFilterRange({...filterRange, end: e.target.value})}
-                  className="w-full p-2.5 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                  className={inputClass}
                 />
               </div>
             </div>
@@ -914,9 +929,9 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
                     required 
                     className="w-full p-2.5 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1 font-bold"
                   >
-                    <option value="Pemasukan">Pemasukan (+)</option>
+                    <option value="Mutasi">Mutasi (Pindah Buku)</option>
                     <option value="Pengeluaran">Pengeluaran (-)</option>
-                    <option value="Mutasi" className="text-header2">Mutasi (Pindah Buku)</option>
+                    <option value="Pemasukan">Pemasukan (+)</option>
                   </select>
                 </div>
                 <div>
@@ -949,7 +964,7 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
                         <option value="">-- Pilih Dompet --</option>
                         {dataDompet.map(d => (
                           <option key={d.id_dompet} value={`${d.id_dompet} - ${d.nama_dompet}`}>
-                            {d.nama_dompet} (Rp {Number(d.saldo || 0).toLocaleString('id-ID')})
+                            {d.nama_dompet} ({formatRp(Number(d.saldo_aktif || d.saldo || 0))})
                           </option>
                         ))}
                       </select>
@@ -970,7 +985,7 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
                         <option value="">-- Pilih Dompet --</option>
                         {dataDompet.map(d => (
                           <option key={d.id_dompet} value={`${d.id_dompet} - ${d.nama_dompet}`}>
-                            {d.nama_dompet} (Rp {Number(d.saldo || 0).toLocaleString('id-ID')})
+                            {d.nama_dompet} ({formatRp(Number(d.saldo_aktif || d.saldo || 0))})
                           </option>
                         ))}
                       </select>
@@ -986,30 +1001,36 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
                     type="text" 
                     value={formData.kategori}
                     onChange={(e) => setFormData({...formData, kategori: e.target.value})}
-                    required 
-                    placeholder="Cth: Operasional" 
+                    placeholder="Auto dari sandi" 
                     className="w-full p-2.5 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
                   />
                 </div>
                 <div>
-                  <label className="text-xs font-bold text-footer2 block mb-1">Sandi (Opsional)</label>
+                  <label className="text-xs font-bold text-footer2 block mb-1">Sandi (Wajib)</label>
                   <input 
                     type="text" 
                     value={formData.sandi}
-                    onChange={(e) => setFormData({...formData, sandi: e.target.value})}
-                    placeholder="Pilih sandi..." 
+                    onChange={(e) => handleSandiChange(e.target.value)}
+                    required 
+                    maxLength={1}
+                    placeholder="A-Z" 
                     list="list-sandi-jurnal"
-                    className="w-full p-2.5 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
+                    className="w-full p-2.5 rounded-lg border border-footer2/50 bg-bgutama text-lg font-bold text-teksgelap uppercase text-center focus:outline-none focus:border-header1"
                   />
                   <datalist id="list-sandi-jurnal">
                     {"ABCDEFGHIJKLMNOPQRSTUVWXYZ".split("").map(char => {
                       const nilaiSandi = getSandiLabel(pengaturan, char);
                       if (nilaiSandi && String(nilaiSandi).trim() !== '') {
-                        return <option key={char} value={`${char}. ${nilaiSandi}`} />;
+                        return <option key={char} value={char} label={nilaiSandi} />;
                       }
                       return null;
                     })}
                   </datalist>
+                  <p className="text-xs font-bold text-footer1 mt-1">
+                    {formData.sandi && getSandiLabel(pengaturan, formData.sandi) 
+                      ? getSandiLabel(pengaturan, formData.sandi) 
+                      : 'Ketik huruf sandi'}
+                  </p>
                 </div>
               </div>
 
@@ -1021,7 +1042,6 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
                   type="text" 
                   value={formData.keterangan}
                   onChange={(e) => setFormData({...formData, keterangan: e.target.value})}
-                  required 
                   placeholder="Cth: Setor tunai hasil penjualan..." 
                   className="w-full p-2.5 rounded-lg border border-footer2/50 bg-bgutama text-sm focus:outline-none focus:border-header1"
                 />
@@ -1034,7 +1054,7 @@ export default function JurnalKeuangan({ onClose, pengaturan: pengaturanProp }: 
                     type="text" 
                     value={formData.referensi}
                     onChange={(e) => setFormData({...formData, referensi: e.target.value})}
-                    placeholder="Cth: INV-123 / Nama" 
+                    placeholder="Auto-generate" 
                     className="w-full p-2.5 rounded-lg border border-footer2/50 bg-bgutama text-sm font-mono focus:outline-none focus:border-header1"
                   />
                 </div>
